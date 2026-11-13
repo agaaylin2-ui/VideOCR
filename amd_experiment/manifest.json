@@ -1,0 +1,9 @@
+{
+  "videocr_commit": "548f8753d169539e56a0fb4ba532a53d8b7a8c82",
+  "standalone_source_commit": "6b9dca07636297b93fbb262b41af83caa2a13f4a",
+  "standalone_release": "v3.7.0",
+  "standalone_source_release_relationship": "Unverified; source commit and release binary are independently pinned.",
+  "windows_cpu_archive": {"name": "PaddleOCR-CPU-v3.7.0.7z", "sha256": "a1b597f5620d1a86cec606b50908a12fc1b215adf6807be5538b7ca6bddc9d20"},
+  "windows_model_archive": {"name": "PaddleOCR.PP-OCRv6.support.files.VideOCR.7z", "sha256": "7f98a187a1d8d9b5291f3be7cd6a6b693b32ddffd75d39c05d333d8f0b3ee145"},
+  "models": ["det/PP-OCRv6_small_det", "rec/PP-OCRv6_small_rec"]
+}

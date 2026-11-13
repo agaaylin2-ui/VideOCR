@@ -15,6 +15,7 @@ import fast_ssim
 import wordninja_enhanced as wordninja
 
 from . import utils
+from .backends import discover_backends, select_backend
 from .models import PredictedFrames, PredictedSubtitle
 from .pyav_adapter import Capture, get_video_properties
 
@@ -43,6 +44,7 @@ class Video:
     def __init__(self, path: str, paddleocr_path: str, det_model_dir: str, rec_model_dir: str, cls_model_dir: str, google_lens_path: str) -> None:
         self.path = path
         self.paddleocr_path = paddleocr_path
+        self.ocr_backend = select_backend(discover_backends(paddleocr_path, utils.stream_cli_process))
         self.det_model_dir = det_model_dir
         self.rec_model_dir = rec_model_dir
         self.cls_model_dir = cls_model_dir
@@ -549,7 +551,7 @@ class Video:
             current_image = None
             det_image_index = 0
 
-            for line in utils.stream_cli_process(args, "paddleocr_error.log"):
+            for line in self.ocr_backend.run(args):
                 line = line.strip()
 
                 if "ppocr INFO: **********" in line:
@@ -850,7 +852,7 @@ class Video:
 
                 current_image = None
                 font_path_env = {"PADDLE_PDX_LOCAL_FONT_FILE_PATH": utils.resolve_font_path(self.lang)} if save_ocr_images else None
-                for line in utils.stream_cli_process(args, "paddleocr_error.log", font_path_env):
+                for line in self.ocr_backend.run(args, font_path_env):
                     line = line.strip()
 
                     if "ppocr INFO: **********" in line:
