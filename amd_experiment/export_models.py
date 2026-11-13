@@ -1,9 +1,11 @@
-"""Export exact baseline model directories using the documented PaddleX converter."""
+"""Export exact baseline model directories using the pinned Paddle2ONNX converter."""
 import argparse
 import hashlib
 import json
 import subprocess
 import sys
+
+import onnx
 from pathlib import Path
 
 
@@ -30,13 +32,16 @@ def main():
         dst.mkdir(parents=True, exist_ok=True)
         if any(dst.iterdir()):
             raise ValueError(f"Output directory must be empty: {dst}")
-        cmd = ["paddlex", "--paddle2onnx", "--paddle_model_dir", str(src), "--onnx_model_dir", str(dst), "--opset_version", str(a.opset)]
+        cmd = [str(Path(sys.executable).with_name("paddle2onnx.exe" if sys.platform == "win32" else "paddle2onnx")), "--model_dir", str(src), "--model_filename", "inference.json", "--params_filename", "inference.pdiparams", "--save_file", str(dst / "inference.onnx"), "--opset_version", str(a.opset), "--optimize_tool", "None"]
         print("Running:", subprocess.list2cmdline(cmd), flush=True)
         subprocess.run(cmd, check=True)
         files = list(dst.rglob("*.onnx"))
         if len(files) != 1:
             raise RuntimeError(f"Expected one ONNX file in {dst}; found {files}")
-        report[kind] = {"source_files": {str(f.relative_to(src)): digest(f) for f in sorted(src.rglob("*")) if f.is_file()}, "onnx_file": str(files[0]), "onnx_sha256": digest(files[0]), "requested_opset": a.opset, "command": cmd}
+        model = onnx.load(str(files[0]))
+        onnx.checker.check_model(model)
+        opsets = {entry.domain or "ai.onnx": entry.version for entry in model.opset_import}
+        report[kind] = {"actual_opsets": opsets, "source_files": {str(f.relative_to(src)): digest(f) for f in sorted(src.rglob("*")) if f.is_file()}, "onnx_file": str(files[0]), "onnx_sha256": digest(files[0]), "requested_opset": a.opset, "command": cmd}
     (a.out / "export_manifest.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
     return 0
 

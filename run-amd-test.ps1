@@ -53,11 +53,13 @@ try {
     }
     if (-not $pythonExe) { Status 'Python 3.12' 'FAIL' 'Install Python 3.12 from python.org, then rerun.'; throw 'Python 3.12 missing.' }
     Status 'Python 3.12' 'PASS' 'Python 3.12 found.'
-    $seven = Get-Command 7z.exe -ErrorAction SilentlyContinue
-    if (-not $seven) {
-        $candidate = Join-Path ${env:ProgramFiles} '7-Zip\7z.exe'
-        if (Test-Path -LiteralPath $candidate) { $sevenPath = $candidate } else { $sevenPath = $null }
-    } else { $sevenPath = $seven.Source }
+    $sevenPath = $null
+    $candidate = Join-Path ${env:ProgramFiles} '7-Zip\7z.exe'
+    if (Test-Path -LiteralPath $candidate -PathType Leaf) { $sevenPath = $candidate }
+    else {
+        $seven = Get-Command 7z.exe -ErrorAction SilentlyContinue
+        if ($seven) { $sevenPath = $seven.Source }
+    }
     if (-not $sevenPath) { Status '7-Zip' 'FAIL' 'Install 7-Zip from 7-zip.org, then rerun.'; throw '7-Zip missing.' }
     Status '7-Zip' 'PASS' 'Found 7-Zip.'
     try {
@@ -120,18 +122,28 @@ try {
     if ($ort) {
         try {
             Run-Logged 'ort-versions' $ort @('-m','pip','freeze')
-            Run-Logged 'ort-dependencies' $ort @('-c', 'import numpy,onnxruntime; print(onnxruntime.get_available_providers()); assert "DmlExecutionProvider" in onnxruntime.get_available_providers()')
+            Run-Logged 'ort-dependencies' $ort @((Join-Path $experiment 'check_directml.py'))
             Status 'DirectML dependencies' 'PASS' 'DirectML provider is available; model execution remains unverified.'
         } catch { Status 'DirectML dependencies' 'FAIL' "$_"; $ort = $null }
+    }
+    if (-not $converter -and -not $ConverterPython) {
+        try {
+            $converterDir = Join-Path $runRoot 'converter-env'
+            Run-Logged 'converter-create-environment' $pythonExe ($pythonPrefix + @('-m','venv',$converterDir))
+            $converterCandidate = Join-Path $converterDir 'Scripts\python.exe'
+            Run-Logged 'converter-install-verified' $converterCandidate @('-m','pip','install','--index-url','https://pypi.org/simple','--only-binary=:all:','--require-hashes','-r',(Join-Path $experiment 'locks\converter-win-py312.txt'))
+            $converter = $converterCandidate
+            Status 'Converter dependencies' 'PASS' 'Installed hash-checked packages in an isolated environment.'
+        } catch { $converter = $null; Status 'Converter dependencies' 'FAIL' "$_" }
     }
     $exportOk = $false
     if ($converter) {
         try {
-            Run-Logged 'converter-dependencies' $converter @('-c', 'import paddle,paddlex,onnx')
+            Run-Logged 'converter-dependencies' $converter @('-c', 'import paddle2onnx,onnx')
             Status 'Converter dependencies' 'PASS' 'Required Python imports succeeded; package provenance must be verified separately.'
             $env:Path = (Split-Path $converter -Parent) + ';' + $env:Path
-            $paddlex = Join-Path (Split-Path $converter -Parent) 'paddlex.exe'
-            if (-not (Test-Path -LiteralPath $paddlex)) { throw 'paddlex.exe is missing from the converter environment.' }
+            $paddle2onnx = Join-Path (Split-Path $converter -Parent) 'paddle2onnx.exe'
+            if (-not (Test-Path -LiteralPath $paddle2onnx)) { throw 'paddle2onnx.exe is missing from the converter environment.' }
             Run-Logged 'converter-versions' $converter @('-m','pip','freeze')
             Run-Logged 'export' $converter @((Join-Path $experiment 'export_models.py'), '--models', $modelRoot, '--out', (Join-Path $runRoot 'onnx'), '--opset', '17')
             Copy-Item (Join-Path $runRoot 'onnx\export_manifest.json') $logs
