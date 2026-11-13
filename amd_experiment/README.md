@@ -39,6 +39,8 @@ This runs the pinned standalone's CPU-only detection and full OCR pipelines with
 
 ## 2. Export the two models
 
+**Blocked:** The older setup below is not validated: Paddle2ONNX 2.1.0 requires ONNX <=1.17.0, conflicting with ONNX 1.19.1. Testing 2.1.0 with PaddlePaddle 3.3.1 and ONNX 1.17.0 on Windows failed to load a native DLL. Do not run these installation commands until a compatible, hash-locked converter is established. See `AMD_TEST_WINDOWS.md` for current status.
+
 Use a separate converter environment. PaddleOCR's conversion guide currently specifies a Windows nightly PaddlePaddle build; this command is therefore not a fully immutable converter environment. Save `pip freeze` and the exact wheel URLs/versions used and reuse them on reruns. The converter may automatically raise the requested opset. Do not silently downgrade or infer compatibility from export success. References: [official conversion instructions](https://www.paddleocr.ai/latest/en/version3.x/inference_deployment/others/obtaining_onnx_models.html), [DirectML limits](https://onnxruntime.ai/docs/execution-providers/DirectML-ExecutionProvider.html).
 
 ```powershell

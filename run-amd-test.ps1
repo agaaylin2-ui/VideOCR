@@ -7,6 +7,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 $experiment = Join-Path $root 'amd_experiment'
+. (Join-Path $experiment 'adapter_selection.ps1')
 $runRoot = Join-Path $root ('amd-work\run-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '-' + [guid]::NewGuid().ToString('N').Substring(0,8))
 $logs = Join-Path $runRoot 'diagnostics'
 New-Item -ItemType Directory -Path $logs -Force | Out-Null
@@ -63,12 +64,12 @@ try {
         $gpuFile = Join-Path $logs 'dxgi-adapters.json'
         & $pythonExe @pythonPrefix (Join-Path $experiment 'dxgi_adapters.py') | Set-Content -Encoding utf8 $gpuFile
         if ($LASTEXITCODE -ne 0) { throw 'DXGI enumeration failed' }
-        $adapters = @(Get-Content -Raw -Encoding utf8 $gpuFile | ConvertFrom-Json)
+        $adapterJson = Get-Content -Raw -Encoding utf8 $gpuFile
+        $adapters = ConvertFrom-Json -InputObject $adapterJson
         Write-Host 'DirectML adapter list:'
         foreach ($a in $adapters) { Write-Host ("  {0}: {1} (vendor {2}, device {3})" -f $a.index, $a.name, $a.vendor_id, $a.device_id) }
-        $matches = @($adapters | Where-Object { $_.vendor_id -eq '1002' -and $_.name -match 'Radeon RX 9070 XT' })
-        if ($matches.Count -eq 1) { $adapter = [int]$matches[0].index; Status 'AMD adapter' 'PASS' "DXGI index $adapter matches $($matches[0].name)." }
-        else { $adapter = $null; Status 'AMD adapter' 'UNVERIFIED' 'Could not uniquely identify an RX 9070 XT. No GPU test will run.' }
+        $adapter = Get-SelectedAmdAdapter -Json $adapterJson
+        Status 'AMD adapter' 'PASS' "RX 9070 XT identified at DXGI index $adapter."
     } catch { $adapter = $null; Status 'AMD adapter' 'UNVERIFIED' "Could not enumerate DXGI adapters: $_" }
     try { Get-CimInstance Win32_VideoController | Select-Object Name,DriverVersion,PNPDeviceID | Format-List | Out-File -Encoding utf8 (Join-Path $logs 'windows-gpus.txt') } catch { "GPU driver information unavailable: $_" | Set-Content -Encoding utf8 (Join-Path $logs 'windows-gpus.txt') }
     if (-not $ImagePath) {
@@ -83,7 +84,7 @@ try {
     Status 'Screenshot' 'PASS' 'Image selected. It will not be copied into the report.'
     $converter = Find-VenvPython $ConverterPython 'Converter dependencies'
     $ort = Find-VenvPython $OrtPython 'DirectML dependencies'
-    $download = Read-Host 'Download the verified PaddleOCR CPU and model archives (about 450 MB)? Type YES to continue'
+    $download = Read-Host 'Download the verified PaddleOCR archives (about 450 MB) and isolated test dependencies? Type YES to continue'
     if ($download -cne 'YES') { Status 'Archives' 'UNVERIFIED' 'Download skipped.'; throw 'Download skipped by user.' }
     $assets = @(
         @{ name='PaddleOCR-CPU-v3.7.0.7z'; hash='a1b597f5620d1a86cec606b50908a12fc1b215adf6807be5538b7ca6bddc9d20'; dest='runtime' },
@@ -106,10 +107,28 @@ try {
     $modelRoot = $models[0].FullName
     try { Run-Logged 'cpu-baseline' $pythonExe ($pythonPrefix + @((Join-Path $experiment 'baseline.py'), '--exe', $exe[0].FullName, '--models', $modelRoot, '--image', $ImagePath, '--out', (Join-Path $logs 'cpu-baseline'))); Status 'CPU baseline' 'PASS' 'CPU commands completed. OCR accuracy still needs review.' }
     catch { Status 'CPU baseline' 'FAIL' "$_" }
+    if (-not $ort -and -not $OrtPython) {
+        try {
+            $ortDir = Join-Path $runRoot 'ort-env'
+            Run-Logged 'ort-create-environment' $pythonExe ($pythonPrefix + @('-m','venv',$ortDir))
+            $ortCandidate = Join-Path $ortDir 'Scripts\python.exe'
+            Run-Logged 'ort-install-verified' $ortCandidate @('-m','pip','install','--index-url','https://pypi.org/simple','--only-binary=:all:','--require-hashes','-r',(Join-Path $experiment 'locks\directml-win-py312.txt'))
+            $ort = $ortCandidate
+            Status 'DirectML dependencies' 'PASS' 'Installed hash-checked packages in an isolated environment.'
+        } catch { $ort = $null; Status 'DirectML dependencies' 'FAIL' "$_" }
+    }
+    if ($ort) {
+        try {
+            Run-Logged 'ort-versions' $ort @('-m','pip','freeze')
+            Run-Logged 'ort-dependencies' $ort @('-c', 'import numpy,onnxruntime; print(onnxruntime.get_available_providers()); assert "DmlExecutionProvider" in onnxruntime.get_available_providers()')
+            Status 'DirectML dependencies' 'PASS' 'DirectML provider is available; model execution remains unverified.'
+        } catch { Status 'DirectML dependencies' 'FAIL' "$_"; $ort = $null }
+    }
     $exportOk = $false
     if ($converter) {
         try {
             Run-Logged 'converter-dependencies' $converter @('-c', 'import paddle,paddlex,onnx')
+            Status 'Converter dependencies' 'PASS' 'Required Python imports succeeded; package provenance must be verified separately.'
             $env:Path = (Split-Path $converter -Parent) + ';' + $env:Path
             $paddlex = Join-Path (Split-Path $converter -Parent) 'paddlex.exe'
             if (-not (Test-Path -LiteralPath $paddlex)) { throw 'paddlex.exe is missing from the converter environment.' }
@@ -121,8 +140,8 @@ try {
     } else { Status 'ONNX export' 'UNVERIFIED' 'Converter environment is not prepared; see README.' }
     if ($ort -and $exportOk -and $null -ne $adapter) {
         try {
-            Run-Logged 'ort-versions' $ort @('-m','pip','freeze')
             foreach ($kind in @('det','rec')) {
+              try {
                 $model = @(Get-ChildItem (Join-Path $runRoot "onnx\$kind") -Recurse -File -Filter '*.onnx')
                 if ($model.Count -ne 1) { throw "Expected one $kind ONNX model." }
                 $shape = if ($kind -eq 'det') { '1,3,640,640' } else { '1,3,48,320' }
@@ -130,9 +149,16 @@ try {
                 Run-Logged "$kind-input" $ort @((Join-Path $experiment 'make_smoke_input.py'), '--model', $model[0].FullName, '--shape', $shape, '--out', $inputFile)
                 Run-Logged "$kind-comparison" $ort @((Join-Path $experiment 'compare_ort.py'), '--model', $model[0].FullName, '--input', $inputFile, '--out', (Join-Path $logs "$kind-test"), '--adapter', "$adapter")
                 Status "$kind tensor test" 'PASS' 'ORT comparison and provider trace completed; physical GPU use is still unverified.'
+              } catch { Status "$kind tensor test" 'FAIL' "$_" }
             }
         } catch { Status 'DirectML experiment' 'FAIL' "$_" }
-    } else { Status 'DirectML experiment' 'UNVERIFIED' 'Requires successful export, an identified adapter, and a prepared DirectML environment.' }
+    } else {
+        $reasons = @()
+        if (-not $ort) { $reasons += 'DirectML environment missing' }
+        if (-not $exportOk) { $reasons += 'model export did not succeed' }
+        if ($null -eq $adapter) { $reasons += 'RX 9070 XT adapter not uniquely identified' }
+        Status 'DirectML experiment' 'UNVERIFIED' ('Skipped: ' + ($reasons -join '; ') + '.')
+    }
     Status 'AMD acceleration' 'UNVERIFIED' 'Inspect both traces and observe the RX 9070 XT during real inference; this smoke test does not verify OCR accuracy.'
 } catch {
     if (-not $results.Contains('Overall')) { Status 'Overall' 'FAIL' "$_" }
