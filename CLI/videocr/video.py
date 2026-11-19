@@ -15,7 +15,7 @@ import fast_ssim
 import wordninja_enhanced as wordninja
 
 from . import utils
-from .backends import discover_backends, select_backend
+from .backends import OCRBackend, discover_backends, select_backend
 from .models import PredictedFrames, PredictedSubtitle
 from .pyav_adapter import Capture, get_video_properties
 
@@ -41,10 +41,10 @@ class Video:
     start_time_offset_ms: float
     avg_frame_duration_ms: float
 
-    def __init__(self, path: str, paddleocr_path: str, det_model_dir: str, rec_model_dir: str, cls_model_dir: str, google_lens_path: str) -> None:
+    def __init__(self, path: str, paddleocr_path: str, det_model_dir: str, rec_model_dir: str, cls_model_dir: str, google_lens_path: str, *, ocr_backend: OCRBackend | None = None) -> None:
         self.path = path
         self.paddleocr_path = paddleocr_path
-        self.ocr_backend = select_backend(discover_backends(paddleocr_path, utils.stream_cli_process))
+        self.ocr_backend = ocr_backend if ocr_backend is not None else select_backend(discover_backends(paddleocr_path, utils.stream_cli_process))
         self.det_model_dir = det_model_dir
         self.rec_model_dir = rec_model_dir
         self.cls_model_dir = cls_model_dir

@@ -15,7 +15,6 @@ from typing import IO, Any
 import av
 import fast_ssim
 import simplejpeg
-from cpuid import cpuid, xgetbv  # type: ignore
 
 from .lang_dictionaries import PADDLEOCR_LANGS
 from .models import PredictedText
@@ -282,6 +281,8 @@ def resolve_font_path(lang: str) -> str:
 
 def perform_hardware_check(paddleocr_path: str, use_gpu: bool) -> None:
     """Checks if the current system supports the hardware requirements."""
+    from cpuid import cpuid, xgetbv  # type: ignore
+
     error_prefix = "Unsupported Hardware Error:"
     warning_prefix = "Hardware Check Warning:"
 
