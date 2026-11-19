@@ -1,0 +1,9 @@
+# AMD OCR experiment
+
+For beginner Windows instructions use [`AMD_TEST_WINDOWS.md`](../AMD_TEST_WINDOWS.md). `run-amd-test.ps1` verifies the pinned PaddleOCR release archives, creates separate hash-locked converter and DirectML environments, and records the CPU baseline and synthetic ONNX tensor tests. It does not prove OCR accuracy or VideOCR GPU acceleration.
+
+The audited VideOCR and standalone revisions, independent release pin, archive hashes, and selected model paths are recorded in `manifest.json`. The branch is based on a newer fork revision than the audited commit; record the branch commit with each run. The selected English models are `det/PP-OCRv6_small_det` and `rec/PP-OCRv6_small_rec`. Do not replace weights with merely similarly named models. The helper records extracted model hashes and retains the original files.
+
+The tested Windows converter uses PaddlePaddle 3.1.1, Paddle2ONNX 2.1.0 and ONNX 1.17.0 from `locks/converter-win-py312.txt`; older instructions using PaddlePaddle 3.3.1 and ONNX 1.19.1 were not compatible. `export_models.py` invokes the pinned Paddle2ONNX CLI with optimization disabled, checks the resulting graphs and records source/output hashes and opset. Output folders must be empty. The DirectML lock is separate to avoid ORT package conflicts. Hashes checked against PyPI establish integrity against the published artifacts, not package safety.
+
+The legacy OCR subprocess backend remains the only application backend. Selection fallback is pre-run only and does not guarantee CPU: existing executable packaging and `--use_gpu` still control it. There is no public DirectML backend flag. Detector/recognizer tensor tests compare ORT CPU and DirectML on artificial inputs; model conversion parity against Paddle, real OCR text and final subtitles require additional testing.

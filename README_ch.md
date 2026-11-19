@@ -1,4 +1,6 @@
-[English](https://github.com/timminator/VideOCR/blob/master/README.md) | 中文
+[English](README.md) | 中文
+
+本分支提供 Windows 11 的 AMD DirectML 预览版，已在 Radeon RX 9070 XT 上验证英文硬字幕提取。请从本仓库下载并解压完整 ZIP，运行 VideOCR-AMD.exe。首次使用请参阅 [AMD 设置指南](AMD_VIDEO_WINDOWS.md)。以下为原版 GUI 与 CLI 的使用说明。
 
 <p align="center">
 <img src="https://github.com/timminator/VideOCR/raw/master/Pictures/VideOCR.png" alt="VideOCR 图标" width="128">
