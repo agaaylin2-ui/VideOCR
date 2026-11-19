@@ -22,7 +22,7 @@ def method(obj, index, result, *args):
     return ctypes.WINFUNCTYPE(result, ctypes.c_void_p, *args)(table[index])
 
 
-def main():
+def enumerate_adapters():
     if sys.platform != "win32":
         raise RuntimeError("DXGI is available only on Windows")
     iid = GUID(0x7B7166EC, 0x21C7, 0x44AE, (ctypes.c_ubyte * 8)(0xB2, 0x1A, 0xC9, 0xAE, 0x32, 0x1A, 0xE3, 0x69))
@@ -53,8 +53,8 @@ def main():
                 method(adapter, 2, wintypes.ULONG)(adapter)
     finally:
         method(factory, 2, wintypes.ULONG)(factory)
-    print(json.dumps(adapters))
+    return adapters
 
 
 if __name__ == "__main__":
-    main()
+    print(json.dumps(enumerate_adapters()))

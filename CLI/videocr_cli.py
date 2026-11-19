@@ -109,6 +109,7 @@ def valid_alignment_name(arg: str) -> str | None:
 def main() -> None:
     parser = argparse.ArgumentParser(description='Extract subtitles from a video using PaddleOCR or Google Lens.')
 
+    parser.add_argument('--directml', action='store_true', help='Use the prepared Windows AMD desktop runtime')
     parser.add_argument('--video_path', type=valid_video_path, required=True, help='Path to the video file')
     parser.add_argument('--output', type=valid_output_path, default='subtitle.srt', help='Output SRT file path (default: subtitle.srt)')
     parser.add_argument('--ocr_engine', type=str, choices=['paddleocr', 'google_lens'], default='paddleocr', help='OCR engine to use in the recognition step (default: paddleocr)')
@@ -190,8 +191,16 @@ def main() -> None:
         disable_wakelock = args.allow_system_sleep or utils.is_running_in_container()
         keep_awake_manager = nullcontext() if disable_wakelock else keep.running()
 
+        export = save_subtitles_to_file
+        if args.directml:
+            from pathlib import Path
+
+            sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'amd_experiment'))
+            from video_export import export_desktop
+
+            export = export_desktop
         with keep_awake_manager:
-            save_subtitles_to_file(
+            export(
                 video_path=args.video_path,
                 file_path=args.output,
                 ocr_engine=args.ocr_engine,

@@ -7,6 +7,10 @@ from real_image_compare import summarize_profile
 
 
 def verified_models(image_run):
+    return verified_model_directory(image_run / "diagnostics" / "comparison" / "model-configs")
+
+
+def verified_model_directory(models):
     # SHA-256 of the exact exports and preprocessing/decoder configs from the
     # reference RX 9070 XT run. Reject swapped models or a different dictionary.
     expected = {
@@ -15,7 +19,6 @@ def verified_models(image_run):
         'rec': ('7a10319171913a664e03b9f84bb159dbc1c7c397a2ff7a79d89287df64c64d4b',
                 'ab078671bb49f06228eadccd34f1bb501e157f7a047095ffb943ba81512c77d1'),
     }
-    models = image_run / 'diagnostics' / 'comparison' / 'model-configs'
     for kind, hashes in expected.items():
         for filename, digest in zip(('inference.onnx', 'inference.yml'), hashes):
             with (models / kind / filename).open('rb') as stream:

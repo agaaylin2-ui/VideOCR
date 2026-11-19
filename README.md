@@ -1,8 +1,12 @@
-# VideOCR AMD Preview
+# VideOCR AMD
+
+The **AMD Desktop** build opens the original VideOCR interface with video preview, crop boxes, Advanced Settings, queue and progress. Its portable folder includes the DirectML runtime and PP-OCRv6 small models. [Desktop edition and build instructions](AMD_DESKTOP.md)
+
+## Console preview
 
 Turn English subtitles burned into a video into a timed SubRip (.srt) file on Windows 11. This fork adds local GPU recognition using ONNX Runtime DirectML and PaddleOCR's PP-OCRv6 small models. The Windows preview has been tested on the **AMD Radeon RX 9070 XT (16 GB)**.
 
-## Run it on Windows
+### Run the console preview on Windows
 
 1. [Download the ZIP from this fork](https://github.com/agaaylin2-ui/VideOCR/archive/refs/heads/master.zip). In Downloads, right-click the ZIP and choose **Extract All**.
 2. Open the extracted folder and double-click **VideOCR-AMD.exe**. Keep the executable and the accompanying folders together.

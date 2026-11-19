@@ -187,6 +187,10 @@ def find_videocr_program() -> str | None:
     if os.path.exists(root_path):
         return root_path
 
+    if AMD_DESKTOP:
+        installed = pathlib.Path(os.environ.get('ProgramFiles', 'C:/Program Files')) / 'VideOCR' / 'videocr-cli.exe'
+        if installed.is_file():
+            return str(installed)
     return None
 
 
@@ -199,7 +203,7 @@ def get_config_file_path() -> str:
         config_dir = APP_DIR
     else:
         if sys.platform == "win32":
-            config_dir = os.path.join(os.environ.get('APPDATA') or os.path.join(str(pathlib.Path.home()), 'AppData', 'Roaming'), 'VideOCR')
+            config_dir = os.path.join(os.environ.get('APPDATA') or os.path.join(str(pathlib.Path.home()), 'AppData', 'Roaming'), 'VideOCR-AMD' if AMD_DESKTOP else 'VideOCR')
         else:
             xdg_config = os.environ.get("XDG_CONFIG_HOME")
             if xdg_config:
@@ -215,11 +219,13 @@ def get_config_file_path() -> str:
 # --- Configuration ---
 PROGRAM_VERSION = __version__
 APP_DIR = os.path.dirname(os.path.abspath(__file__))
+AMD_DESKTOP = sys.platform == 'win32' and '--amd-desktop' in sys.argv
+AMD_ENGINE = 'PaddleOCR - AMD DirectML (RX 9070 XT)'
 LANGUAGES_DIR = os.path.join(APP_DIR, 'languages')
 VIDEOCR_PATH = find_videocr_program()
 DEFAULT_OUTPUT_SRT = ""
 DEFAULT_LANG = "en"
-DEFAULT_OCR_ENGINE = "PaddleOCR (Det. + Rec.)"
+DEFAULT_OCR_ENGINE = AMD_ENGINE if AMD_DESKTOP else "PaddleOCR (Det. + Rec.)"
 DEFAULT_SUBTITLE_LANGUAGE = 'English'
 DEFAULT_SUBTITLE_POSITION = "center"
 DEFAULT_SUBTITLE_ALIGNMENT = "bottom-center"
@@ -361,6 +367,9 @@ OCR_ENGINES = [
     'PaddleOCR (Det. + Rec.)',
     'PaddleOCR (Det.) + Google Lens (Rec.)'
 ]
+
+if AMD_DESKTOP:
+    OCR_ENGINES = OCR_ENGINES + [AMD_ENGINE] if VIDEOCR_PATH else [AMD_ENGINE]
 
 # Mapping from PaddleOCR internal codes to standard ISO 639 codes for deviating abbreviations
 PADDLE_TO_ISO_MAP = {
@@ -703,6 +712,7 @@ def update_gui_text(window: sg.Window, is_paused: bool = False) -> None:
     for cmd_key in ('-BTN-RUN-', '-BTN-ADD-BATCH-'):
         if cmd_key in window.AllKeysDict:
             window[cmd_key].set_right_click_menu(make_copy_command_menu())
+    apply_engine_controls(window)
 
 
 # --- Helper Functions ---
@@ -724,6 +734,15 @@ def kill_process_tree(pid: int) -> None:
             log_error(f"Error terminating process group {pid}: {e}")
         except Exception as e:
             log_error(f"An unexpected error occurred during process kill: {e}")
+
+
+def stop_worker(window, pid):
+    # The desktop DirectML worker performs inference in the process we started.
+    worker = getattr(window, 'directml_worker', None)
+    if worker is not None and worker.pid == pid:
+        worker.terminate()
+    else:
+        kill_process_tree(pid)
 
 
 def format_time(seconds: float | int) -> str:
@@ -966,7 +985,7 @@ def check_for_updates(window: sg.Window, manual_check: bool = False) -> None:
     """Checks GitHub for a new release."""
     try:
         headers = {'User-Agent': 'VideOCR-GUI'}
-        req = urllib.request.Request("https://api.github.com/repos/timminator/VideOCR/releases/latest", headers=headers)
+        req = urllib.request.Request("https://api.github.com/repos/agaaylin2-ui/VideOCR/releases/latest", headers=headers)
 
         with urllib.request.urlopen(req, timeout=5) as response:
             if response.status == 200:
@@ -1022,6 +1041,24 @@ def update_alignment_controls(window: sg.Window, values: dict[str, Any]) -> None
     is_dual_zone = values.get('--use_dual_zone', False)
     window['--subtitle_alignment'].update(disabled=not is_checked)
     window['--subtitle_alignment2'].update(disabled=not (is_checked and is_dual_zone))
+
+
+AMD_UNSUPPORTED = ('--use_gpu', '--use_server_model', '--use_angle_cls', '--save_ocr_images')
+
+
+def apply_engine_controls(window: sg.Window) -> None:
+    if not AMD_DESKTOP:
+        return
+    active = window['-OCR_ENGINE_COMBO-'].get() == AMD_ENGINE
+    for key in AMD_UNSUPPORTED:
+        if active:
+            window[key].update(value=(key == '--use_gpu'), disabled=True)
+        else:
+            window[key].update(disabled=False)
+    window['--use_gpu'].update(text='AMD DirectML GPU' if active else LANG.get('chk_use_gpu', 'Enable GPU Usage'))
+    if active:
+        window['-LANG_COMBO-'].update(values=[DEFAULT_SUBTITLE_LANGUAGE], value=DEFAULT_SUBTITLE_LANGUAGE)
+        update_ocr_images_controls(window, {'--save_ocr_images': False})
 
 
 def update_ocr_images_controls(window: sg.Window, values: dict[str, Any]) -> None:
@@ -1189,7 +1226,7 @@ def apply_gui_scaling_change(window: sg.Window, selected_display_value: str) -> 
     process_to_kill = getattr(window, '_videocr_process_pid', None)
     if process_to_kill:
         try:
-            kill_process_tree(process_to_kill)
+            stop_worker(window, process_to_kill)
         except Exception as e:
             log_error(f"Exception during restart process kill: {e}")
 
@@ -1241,6 +1278,7 @@ def reset_settings_to_default(window: sg.Window, keys: list[str]) -> bool:
     if pending_language_display is not None:
         apply_ui_language_change(window, pending_language_display)
 
+    apply_engine_controls(window)
     current_values = window.read(timeout=0)[1]
     update_alignment_controls(window, current_values)
     update_ocr_images_controls(window, current_values)
@@ -1338,6 +1376,8 @@ def load_settings(window: sg.Window) -> None:
                 update_gui_scaling_combo(window, get_gui_scaling_index(saved_scaling))
 
                 saved_engine = config.get(CONFIG_SECTION, '-OCR_ENGINE_COMBO-', fallback=DEFAULT_OCR_ENGINE)
+                if saved_engine not in OCR_ENGINES:
+                    saved_engine = DEFAULT_OCR_ENGINE
                 window['-OCR_ENGINE_COMBO-'].update(value=saved_engine)
 
                 active_lang_list = lens_display_names if "Google Lens" in saved_engine else paddle_display_names
@@ -1941,6 +1981,12 @@ def get_processing_args(values: dict[str, Any], window: sg.Window) -> tuple[dict
         if window.crop_boxes:
             args.update(window.crop_boxes[0]['coords'])
 
+    if selected_engine_display == AMD_ENGINE:
+        args['directml'] = True
+        args['lang'] = 'en'
+        for key in AMD_UNSUPPORTED:
+            args[key[2:]] = False
+
     # Explicit Output Path (needed for batch snapshots)
     out_path = values.get('--output')
     if not out_path and video_path:
@@ -1965,12 +2011,16 @@ def get_valid_brightness_threshold(value: Any) -> int | None:
 
 def build_cli_command(args_dict: dict[str, Any]) -> list[str]:
     """Builds the videocr-cli command-line argument list from a processing args dict."""
-    command = [cast(str, VIDEOCR_PATH)]
+    if args_dict.get('directml'):
+        python = pathlib.Path(sys.executable).with_name('python.exe')
+        command = [str(python), '-E', '-s', '-u', '-X', 'utf8', os.path.join(APP_DIR, 'CLI', 'videocr_cli.py'), '--directml']
+    else:
+        command = [cast(str, VIDEOCR_PATH)]
 
     for key, value in args_dict.items():
         if value is not None and value != '':
             arg_name = f"--{key}"
-            if key != 'send_notification':
+            if key not in ('send_notification', 'directml'):
                 command.append(arg_name)
                 if isinstance(value, bool):
                     command.append(str(value).lower())
@@ -1989,7 +2039,7 @@ def command_to_shell_string(command: list[str]) -> str:
 
 def run_videocr(args_dict: dict[str, Any], window: sg.Window) -> bool:
     """Runs the videocr-cli tool in a separate process and streams output."""
-    if not VIDEOCR_PATH:
+    if not VIDEOCR_PATH and not args_dict.get("directml"):
         error_msg = LANG.get('error_cli_not_found', "\nError: videocr-cli not found. Please check the path.\n")
         gui_queue.put(('-VIDEOCR_OUTPUT-', error_msg))
         return False
@@ -2041,7 +2091,7 @@ def run_videocr(args_dict: dict[str, Any], window: sg.Window) -> bool:
                                    start_new_session=(sys.platform != "win32")
                                    )
 
-        gui_queue.put(('-PROCESS_STARTED-', process.pid))
+        gui_queue.put(('-PROCESS_STARTED-', (process, bool(args_dict.get('directml')))))
 
         stderr_thread = threading.Thread(target=read_pipe, args=(process.stderr, stderr_lines))
         stderr_thread.start()
@@ -2115,6 +2165,8 @@ def run_videocr(args_dict: dict[str, Any], window: sg.Window) -> bool:
                     gui_queue.put(('-PROGRESS-SMOOTH-', {'text': msg, 'percent': None}))
                     continue
 
+                if args_dict.get('directml') and line.startswith(('Using ', 'Error: ')):
+                    gui_queue.put(('-VIDEOCR_OUTPUT-', line + '\n'))
                 filtered_match = FILTERED_PATTERN.search(line)
                 if filtered_match:
                     frames = filtered_match.group(1)
@@ -2667,10 +2719,10 @@ tab3_layout = [
         [sg.Text(f"Version: {PROGRAM_VERSION}", font=("Arial", scale_font_size(11)), key='-LBL-ABOUT_VERSION-')],
         [sg.Text("")],
         [sg.Text("Get the newest version here:", font=("Arial", scale_font_size(11)), key='-LBL-GET_NEWEST-')],
-        [sg.Text("https://github.com/timminator/VideOCR/releases", font=("Arial", scale_font_size(11), 'underline'), enable_events=True, key="-GITHUB_RELEASES_LINK-")],
+        [sg.Text("https://github.com/agaaylin2-ui/VideOCR/releases", font=("Arial", scale_font_size(11), 'underline'), enable_events=True, key="-GITHUB_RELEASES_LINK-")],
         [sg.Text("")],
         [sg.Text("Found a bug or have a suggestion? Feel free to open an issue at:", font=("Arial", scale_font_size(11)), key='-LBL-BUG_REPORT-')],
-        [sg.Text("https://github.com/timminator/VideOCR/issues", font=("Arial", scale_font_size(11), 'underline'), enable_events=True, key="-GITHUB_ISSUES_LINK-")],
+        [sg.Text("https://github.com/agaaylin2-ui/VideOCR/issues", font=("Arial", scale_font_size(11), 'underline'), enable_events=True, key="-GITHUB_ISSUES_LINK-")],
         [sg.Text("")],
         [sg.HorizontalSeparator()],
     ], element_justification='c', expand_x=True, expand_y=True)]
@@ -2759,7 +2811,7 @@ def stretch_scrollable_col(col_key: str, max_height: int | None = None) -> None:
 
 make_dpi_aware()
 
-window = sg.Window("VideOCR", layout, relative_location=(0, y_offset), icon=ICON_PATH, finalize=True, resizable=True)
+window = sg.Window("VideOCR AMD" if AMD_DESKTOP else "VideOCR", layout, relative_location=(0, y_offset), icon=ICON_PATH, finalize=True, resizable=True)
 
 # Resize vertical struts and resize window with new total height
 scaled_btn_height = window["-BTN-OPEN-FILE-"].Widget.winfo_reqheight()
@@ -3079,7 +3131,9 @@ while True:
                 msg_event, msg_data = gui_queue.get_nowait()
 
                 if msg_event == '-PROCESS_STARTED-':
-                    window._videocr_process_pid = msg_data
+                    worker, is_directml = msg_data
+                    window._videocr_process_pid = worker.pid
+                    window.directml_worker = worker if is_directml else None
                     window['-BTN-RUN-'].update(disabled=True)
                     window['-BTN-CANCEL-'].update(disabled=False)
                     window['-BTN-BATCH-STOP-'].update(disabled=False)
@@ -3248,6 +3302,7 @@ while True:
                 new_value = DEFAULT_SUBTITLE_LANGUAGE
 
             window['-LANG_COMBO-'].update(values=new_values, value=new_value)
+            apply_engine_controls(window)
 
             if video_path:
                 window.write_event_value('-LANG_COMBO-', new_value)
@@ -3261,7 +3316,7 @@ while True:
         process_to_kill = getattr(window, '_videocr_process_pid', None)
         if process_to_kill:
             try:
-                kill_process_tree(process_to_kill)
+                stop_worker(window, process_to_kill)
             except Exception as e:
                 log_error(f"Exception during final process kill: {e}")
         break
@@ -3292,7 +3347,7 @@ while True:
 
     # --- Handle "Copy Command" right-click menu entry (Run / Add to Queue) ---
     elif isinstance(event, str) and event.endswith('::COPY_CLI_COMMAND'):
-        if not VIDEOCR_PATH:
+        if not VIDEOCR_PATH and not AMD_DESKTOP:
             window['-OUTPUT-'].update(LANG.get('error_cli_not_found', "\nError: videocr-cli not found. Please check the path.\n"), append=True)
         elif not video_path:
             window['-OUTPUT-'].update(LANG.get('error_no_video_for_copy', "\nSelect a video first to build its command.\n"), append=True)
@@ -3366,6 +3421,9 @@ while True:
             window['--ocr_images_output_dir'].update(folder)
 
     elif event == '-BTN-OCR-INFO-':
+        if AMD_DESKTOP and values['-OCR_ENGINE_COMBO-'] == AMD_ENGINE:
+            custom_popup(window, "AMD DirectML", "Local English subtitle detection and recognition on the Radeon RX 9070 XT. Draw a crop box on the video or choose full frame.", icon=ICON_PATH)
+            continue
         custom_popup(window, LANG.get('engine_info', "OCR Engine Information"), LANG.get('engine_message', (
             "PaddleOCR (Det. + Rec.):\n"
             "• 100% local processing.\n"
@@ -3410,10 +3468,10 @@ while True:
         )
 
     elif event == "-GITHUB_ISSUES_LINK-":
-        webbrowser.open("https://github.com/timminator/VideOCR/issues")
+        webbrowser.open("https://github.com/agaaylin2-ui/VideOCR/issues")
 
     elif event == "-GITHUB_RELEASES_LINK-":
-        webbrowser.open("https://github.com/timminator/VideOCR/releases")
+        webbrowser.open("https://github.com/agaaylin2-ui/VideOCR/releases")
 
     elif event == '-SAVE_AS_BTN-':
         output_path = values["--output"]
@@ -4191,7 +4249,11 @@ while True:
 
                 # Restore Engine selection
                 saved_engine = args.get('ocr_engine', 'paddleocr')
-                if saved_engine == 'google_lens':
+                if args.get('directml'):
+                    engine_display = AMD_ENGINE
+                    active_lang_list = [DEFAULT_SUBTITLE_LANGUAGE]
+                    lookup = paddle_abbr_lookup
+                elif saved_engine == 'google_lens':
                     engine_display = OCR_ENGINES[1]
                     active_lang_list = lens_display_names
                     lookup = lens_abbr_lookup
@@ -4221,6 +4283,7 @@ while True:
                 window['enable_subtitle_alignment'].update(value='subtitle_alignment' in args)
                 update_alignment_combos(window, get_alignment_index(saved_align1), get_alignment_index(saved_align2))
 
+                apply_engine_controls(window)
                 current_gui_values = window.read(timeout=0)[1]
                 update_alignment_controls(window, current_gui_values)
                 update_ocr_images_controls(window, current_gui_values)
@@ -4294,7 +4357,7 @@ while True:
                 if window['-BTN-PAUSE-'].get_text() == LANG.get('btn_resume', "Resume"):
                     set_process_pause_state(pid_to_kill, pause=False)
 
-                kill_process_tree(pid_to_kill)
+                stop_worker(window, pid_to_kill)
                 window['-OUTPUT-'].update(LANG.get('status_cancelled', "\nProcess cancelled by user.\n"), append=True)
             except Exception as e:
                 error_msg = LANG.get('error_cancel', "\nError attempting to cancel process: {}\n")
