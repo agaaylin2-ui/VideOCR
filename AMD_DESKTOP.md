@@ -1,4 +1,4 @@
-# VideOCR AMD Desktop for Windows 11
+# VideoOCR-AMD Desktop for Windows 11
 
 Extract the complete portable **desktop ZIP** to a folder and double-click **VideOCR-AMD.exe** beside the **app** and **runtime** folders. This edition includes Python, the OCR runtime and the verified models. Keep the folders together. The smaller console preview in the repository root is a separate download.
 
