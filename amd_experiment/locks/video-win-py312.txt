@@ -1,0 +1,5 @@
+av==17.1.0 --hash=sha256:5df5c1172ef1cf65a1529d612f7da7798ce2cf82c1ff7212466b538a6cc7214c
+Fast-SSIM==1.4.0 --hash=sha256:b734812ced5af2c6c0c75029c84e92fa45694f0f8e1110420c522c2d6ad745c1
+OpenCC==1.4.2 --hash=sha256:7025dc276b2a60b30ed3aefb99f1ceb8616076fd3eb3310c0f8f2046e79e76b1
+simplejpeg @ https://github.com/timminator/simplejpeg/releases/download/v1.9.1/simplejpeg-1.9.1-cp311-abi3-win_amd64.whl --hash=sha256:2a7eb1d99e0f2a910784d898a951079ad1214f0be35629b0ecfe02ad92019a75
+wordninja-enhanced==3.2.0 --hash=sha256:12117e39b751ef8514314d0e25426316763b551bb80d3fafb213cb1ca2b1d06e

@@ -1,5 +1,7 @@
 English | [中文](https://github.com/timminator/VideOCR/blob/master/README_ch.md)
 
+**Windows AMD preview:** [Export English video subtitles on an RX 9070 XT](AMD_VIDEO_WINDOWS.md).
+
 <p align="center">
 <img src="https://github.com/timminator/VideOCR/blob/master/Pictures/VideOCR.png" alt="VideOCR Icon" width="128">
   <h1 align="center">VideOCR</h1>
