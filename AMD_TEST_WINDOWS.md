@@ -1,11 +1,11 @@
 # Windows AMD diagnostic
 
-The helper runs a CPU OCR baseline, exports the PP-OCRv6 small detection and recognition models, and compares ONNX Runtime CPU and DirectML outputs on **synthetic tensors**. It does not install drivers or modify system-wide Python. OCR text accuracy on DirectML and end-to-end VideOCR GPU support are not established.
+The helper runs a CPU OCR baseline, exports the PP-OCRv6 small detection and recognition models, and compares ONNX Runtime CPU and DirectML outputs on **synthetic tensors**. It does not install drivers or modify system-wide Python. For the subsequent video extraction results, see the [Windows AMD preview](AMD_VIDEO_WINDOWS.md).
 
 ## Run the test
 
 1. If needed, install Python 3.12 x64 from [python.org](https://www.python.org/downloads/) and 7-Zip from [7-zip.org](https://www.7-zip.org/). The helper can also find compatible 7-Zip command line tools.
-2. Open [the development branch](https://github.com/agaaylin2-ui/VideOCR/tree/feature/amd-gpu-support), click **Code**, then **Download ZIP**. Extract the ZIP and open its folder, containing `run-amd-test.ps1`.
+2. Open [the AMD fork](https://github.com/agaaylin2-ui/VideOCR/tree/master), click **Code**, then **Download ZIP**. Extract the ZIP and open its folder, containing `run-amd-test.ps1`.
 3. Click the folder address bar, type `powershell`, and press Enter. Paste and run:
 
    ```powershell

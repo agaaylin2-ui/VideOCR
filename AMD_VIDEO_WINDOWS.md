@@ -1,10 +1,10 @@
 # Export English subtitles on a Radeon RX 9070 XT
 
-This Windows 11 preview turns English text visible in the bottom third of a video into a timed SubRip (.srt) file. Open it with the **Start AMD VideOCR** launcher. It uses the fork's VideOCR frame selection, cropping, subtitle merging and timestamps, plus the two PP-OCRv6 small models from the screenshot test.
+This Windows 11 preview turns English text visible in the bottom third of a video into a timed SubRip (.srt) file. Open it with the **VideOCR-AMD.exe** launcher. It uses the fork's VideOCR frame selection, cropping, subtitle merging and timestamps, plus the two PP-OCRv6 small models from the screenshot test.
 
 1. Keep the folders from your successful [Windows setup](AMD_TEST_WINDOWS.md) and [real-image test](REAL_IMAGE_TEST_WINDOWS.md). The ZIP reports alone omit the models and Python packages.
-2. [Download the AMD development branch](https://github.com/agaaylin2-ui/VideOCR/archive/refs/heads/feature/amd-gpu-support.zip). In Downloads, right-click the new ZIP, choose **Extract All**, and pick a fresh folder.
-3. Open the extracted folder containing **Start AMD VideOCR.cmd**. Double-click it. Windows may hide the `.cmd` extension.
+2. [Download the AMD fork](https://github.com/agaaylin2-ui/VideOCR/archive/refs/heads/master.zip). In Downloads, right-click the new ZIP, choose **Extract All**, and pick a fresh folder.
+3. Open the extracted folder and double-click **VideOCR-AMD.exe**. If you already have the two successful test folders, press **Enter**. On a new PC, install Python 3.12 x64 and 7-Zip first. Choose **1** to prepare the models, then reopen the launcher and choose **2** to prepare screenshot OCR. Reopen it and press **Enter** to export. Keep the helper scripts beside the executable.
 4. Choose a short video with upright English subtitles near the bottom. Click **Open**, then **Save**. The proposed name is the video's name followed by `.amd.srt`. If it exists, choose another filename.
 5. Keep the window open. The launcher looks in the project and previous VideOCR folders under Downloads. If prompted for the image test, select the successful **real-image-...** folder containing **paddlex-deps**. If prompted for the runtime, select the **run-...** folder containing **ort-env**. Both are inside an **amd-work** folder.
 6. On first use the launcher downloads five hash-checked video packages to **amd-work**. Later runs reuse that cache. Wait for **VideOCR export complete**. Open the video in VLC and choose **Subtitle > Add Subtitle File** to load the new SRT. You can also open the SRT in Notepad to check its text and timestamps.
