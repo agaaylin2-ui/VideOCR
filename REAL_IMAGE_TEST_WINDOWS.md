@@ -10,7 +10,7 @@ To measure accuracy against a human reference, create a plain text file next to 
 
 ## Run on Windows 11
 
-1. Download the current AMD fork: [Download ZIP](https://github.com/agaaylin2-ui/VideOCR/archive/refs/heads/master.zip). Extract it to a new folder and open that folder.
+1. Download the current AMD fork: [Download ZIP](https://github.com/agaaylin2-ui/VideoOCR-AMD/archive/refs/heads/master.zip). Extract it to a new folder and open that folder.
 2. Click the folder address bar, type `powershell`, and press Enter. Copy, paste and run:
 
    ```powershell
