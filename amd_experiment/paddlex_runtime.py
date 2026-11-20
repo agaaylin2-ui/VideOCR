@@ -21,11 +21,13 @@ def engine_settings(mode, adapter):
     }
 
 
-def ocr_pipeline(det, rec, settings):
+def ocr_pipeline(det, rec, settings, *, batch_size=1):
     from paddlex import create_pipeline
     from paddlex.inference import load_pipeline_config
 
     config = load_pipeline_config('OCR')
+    config['batch_size'] = batch_size
+    config['SubModules']['TextDetection']['batch_size'] = batch_size
     config['use_doc_preprocessor'] = False
     config['use_textline_orientation'] = False
     for kind, directory, name in [('TextDetection', det, 'PP-OCRv6_small_det'),

@@ -1,0 +1,60 @@
+name: Windows desktop installer
+
+on:
+  pull_request:
+    branches: [master]
+    paths:
+      - 'amd_experiment/**'
+      - 'CLI/**'
+      - 'windows/**'
+      - 'languages/**'
+      - 'Installer/**'
+      - 'VideOCR.py'
+      - '_version.py'
+      - 'AMD_DESKTOP.md'
+      - '.github/workflows/windows-desktop.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          architecture: x64
+      - name: Get the verified models and installer compiler
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          Set-Location $env:RUNNER_TEMP
+          $preview = 'VideoOCR-AMD-Desktop-Windows-x64-preview.1.exe'
+          Invoke-WebRequest "https://github.com/aylinlabs/VideoOCR-AMD/releases/download/v1.6.0-amd-preview.1/$preview" -OutFile $preview
+          if ((Get-FileHash $preview).Hash -ne '976D0FD56CC286BEFCF6E7CE335110E105609BD64E36E3907E890472D71F7D34') { throw 'Unexpected model bundle' }
+          $p = Start-Process ".\$preview" -ArgumentList ('--extract-to "{0}"' -f $env:RUNNER_TEMP) -Wait -PassThru
+          if ($p.ExitCode) { throw "Model extraction exited $($p.ExitCode)" }
+          $compiler = 'innosetup-7.1.1-x64.exe'
+          Invoke-WebRequest "https://github.com/jrsoftware/issrc/releases/download/is-7_1_1/$compiler" -OutFile $compiler
+          if ((Get-FileHash $compiler).Hash -ne '8A5A6711C3766A6E5FB74F280BA0E3551E719CE94538D901FDBD1F8F9920B3F0') { throw 'Unexpected Inno Setup download' }
+          $p = Start-Process ".\$compiler" -ArgumentList ('/VERYSILENT /NORESTART /CURRENTUSER /DIR="{0}\inno"' -f $env:RUNNER_TEMP) -Wait -PassThru
+          if ($p.ExitCode) { throw "Compiler setup exited $($p.ExitCode)" }
+      - name: Package the checked-out source
+        shell: pwsh
+        run: |
+          $bundle = Join-Path $env:RUNNER_TEMP 'desktop'
+          $models = Join-Path $env:RUNNER_TEMP 'VideoOCR-AMD Desktop/app/models'
+          python windows/build_amd_desktop.py --output $bundle --models $models
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          & "$env:RUNNER_TEMP/inno/ISCC.exe" /Qp "/DBundle=$bundle" /DAppVersion=1.6.0-amd-preview.4 "/O$env:RUNNER_TEMP" /FVideoOCR-AMD-Windows-x64-preview.4-Setup windows/amd_setup.iss
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: VideoOCR-AMD-Windows-x64-preview.4-Setup
+          path: ${{ runner.temp }}/VideoOCR-AMD-Windows-x64-preview.4-Setup.exe
+          if-no-files-found: error
+          compression-level: 0

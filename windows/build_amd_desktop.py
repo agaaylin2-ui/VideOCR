@@ -44,12 +44,12 @@ def install_packages(target, wheelhouses):
                 shutil.move(str(item), target / item.name)
 
 
-def build(out, image_run, wheelhouses, taskbar_zip):
+def build(out, image_run, wheelhouses, taskbar_zip, model_directory=None):
     if os.name != 'nt' or sys.version_info[:2] != (3, 12) or struct.calcsize('P') != 8:
         raise RuntimeError('Build with Windows CPython 3.12 x64 including Tcl/Tk.')
     sys.path.insert(0, str(ROOT / 'amd_experiment'))
-    from video_backend import verified_models
-    models = verified_models(image_run)
+    from video_backend import verified_model_directory, verified_models
+    models = verified_model_directory(model_directory) if model_directory else verified_models(image_run)
     out.mkdir(parents=True, exist_ok=False)
     runtime = out / 'runtime'
     runtime.mkdir()
@@ -107,8 +107,10 @@ def build(out, image_run, wheelhouses, taskbar_zip):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--output', type=Path, required=True, help='New, empty destination')
-    parser.add_argument('--image-run', type=Path, required=True, help='Previous successful export with model configs')
+    source = parser.add_mutually_exclusive_group(required=True)
+    source.add_argument('--image-run', type=Path, help='Previous successful export with model configs')
+    source.add_argument('--models', type=Path, help='Verified model directory containing det and rec')
     parser.add_argument('--wheelhouse', type=Path, action='append')
     parser.add_argument('--taskbar-zip', type=Path)
     args = parser.parse_args()
-    build(args.output.resolve(), args.image_run, args.wheelhouse, args.taskbar_zip)
+    build(args.output.resolve(), args.image_run, args.wheelhouse, args.taskbar_zip, args.models)

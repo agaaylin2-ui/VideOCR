@@ -1,6 +1,6 @@
 [English](README.md) | 中文
 
-本分支提供 Windows 11 的 AMD DirectML 预览版，已在 Radeon RX 9070 XT 上验证英文硬字幕提取。请从本仓库下载并解压完整 ZIP，运行 VideOCR-AMD.exe。首次使用请参阅 [AMD 设置指南](AMD_VIDEO_WINDOWS.md)。以下为原版 GUI 与 CLI 的使用说明。
+本分支支持在 Windows 11 上使用 Radeon RX 9070 XT 将视频中的英文硬字幕提取为 SRT。请在 [Releases](https://github.com/aylinlabs/VideoOCR-AMD/releases) 的 **Assets** 中选择 Windows 可执行文件。桌面预览版 1 是便携包，解压后运行 **VideOCR-AMD.exe**。对于文件名以 **-Setup.exe** 结尾的安装版，完成安装后即可从开始菜单打开 **VideoOCR-AMD**。桌面版已包含 Python 和 OCR 模型。详见[桌面版使用指南](AMD_DESKTOP.md)。以下为上游 GUI 与 CLI 的使用说明。
 
 <p align="center">
 <img src="https://github.com/timminator/VideOCR/raw/master/Pictures/VideOCR.png" alt="VideOCR 图标" width="128">

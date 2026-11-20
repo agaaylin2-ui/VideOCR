@@ -17,7 +17,7 @@ internal static class DesktopLauncher
             string python = Path.Combine(root, "runtime", "pythonw.exe");
             string bootstrap = Path.Combine(root, "app", "desktop.pyw");
             if (!File.Exists(python) || !File.Exists(bootstrap))
-                throw new FileNotFoundException("Extract the entire AMD Desktop ZIP before opening VideOCR-AMD.exe.");
+                throw new FileNotFoundException("The VideoOCR-AMD runtime is missing. Run Windows Setup again, or extract the complete portable ZIP.");
             var start = new ProcessStartInfo(python, "-E -s -X utf8 \"" + bootstrap + "\"");
             start.WorkingDirectory = Path.GetDirectoryName(bootstrap);
             start.UseShellExecute = false;

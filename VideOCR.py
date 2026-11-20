@@ -988,7 +988,7 @@ def check_for_updates(window: sg.Window, manual_check: bool = False) -> None:
     """Checks GitHub for a new release."""
     try:
         headers = {'User-Agent': 'VideOCR-GUI'}
-        req = urllib.request.Request("https://api.github.com/repos/agaaylin2-ui/VideoOCR-AMD/releases/latest", headers=headers)
+        req = urllib.request.Request("https://api.github.com/repos/aylinlabs/VideoOCR-AMD/releases/latest", headers=headers)
 
         with urllib.request.urlopen(req, timeout=5) as response:
             if response.status == 200:
@@ -2765,10 +2765,10 @@ tab3_layout = [
         [sg.Text(f"Version: {PROGRAM_VERSION}", font=("Arial", scale_font_size(11)), key='-LBL-ABOUT_VERSION-')],
         [sg.Text("")],
         [sg.Text("Get the newest version here:", font=("Arial", scale_font_size(11)), key='-LBL-GET_NEWEST-')],
-        [sg.Text("https://github.com/agaaylin2-ui/VideoOCR-AMD/releases", font=("Arial", scale_font_size(11), 'underline'), enable_events=True, key="-GITHUB_RELEASES_LINK-")],
+        [sg.Text("https://github.com/aylinlabs/VideoOCR-AMD/releases", font=("Arial", scale_font_size(11), 'underline'), enable_events=True, key="-GITHUB_RELEASES_LINK-")],
         [sg.Text("")],
         [sg.Text("Found a bug or have a suggestion? Feel free to open an issue at:", font=("Arial", scale_font_size(11)), key='-LBL-BUG_REPORT-')],
-        [sg.Text("https://github.com/agaaylin2-ui/VideoOCR-AMD/issues", font=("Arial", scale_font_size(11), 'underline'), enable_events=True, key="-GITHUB_ISSUES_LINK-")],
+        [sg.Text("https://github.com/aylinlabs/VideoOCR-AMD/issues", font=("Arial", scale_font_size(11), 'underline'), enable_events=True, key="-GITHUB_ISSUES_LINK-")],
         [sg.Text("")],
         [sg.HorizontalSeparator()],
     ], element_justification='c', expand_x=True, expand_y=True)]
@@ -3518,10 +3518,10 @@ while True:
         )
 
     elif event == "-GITHUB_ISSUES_LINK-":
-        webbrowser.open("https://github.com/agaaylin2-ui/VideoOCR-AMD/issues")
+        webbrowser.open("https://github.com/aylinlabs/VideoOCR-AMD/issues")
 
     elif event == "-GITHUB_RELEASES_LINK-":
-        webbrowser.open("https://github.com/agaaylin2-ui/VideoOCR-AMD/releases")
+        webbrowser.open("https://github.com/aylinlabs/VideoOCR-AMD/releases")
 
     elif event == '-SAVE_AS_BTN-':
         output_path = values["--output"]
