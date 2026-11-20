@@ -95,18 +95,21 @@ def video_frame_to_frame(frame: av.VideoFrame) -> Frame:
     return Frame(data, frame.height, frame.width)
 
 
-def blit(canvas: bytearray, canvas_w: int, img: Frame, x: int, y: int) -> None:
+def blit(canvas: memoryview, canvas_w: int, img: Frame, x: int, y: int) -> None:
     """Copies an RGB frame into the canvas at (x, y) in place."""
     row_bytes = img.width * 3
     canvas_stride = canvas_w * 3
+    src_mv = memoryview(img.data)
+
     for row in range(img.height):
         dst_off = (y + row) * canvas_stride + x * 3
-        canvas[dst_off:dst_off + row_bytes] = img.row(row)
+        src_off = row * row_bytes
+        canvas[dst_off:dst_off + row_bytes] = src_mv[src_off:src_off + row_bytes]
 
 
-def encode_frame_to_jpeg(canvas: bytearray, canvas_w: int, canvas_h: int, quality: int) -> bytes:
-    """Encodes a flat bytearray to JPEG."""
-    mv = memoryview(canvas).cast('B', shape=(canvas_h, canvas_w, 3))
+def encode_frame_to_jpeg(canvas: memoryview, canvas_w: int, canvas_h: int, quality: int) -> bytes:
+    """Encodes a flat memoryview buffer to JPEG."""
+    mv = canvas.cast('B', shape=(canvas_h, canvas_w, 3))
     return simplejpeg.encode_jpeg(mv, quality=quality, colorspace='RGB')
 
 
@@ -242,6 +245,8 @@ def resolve_model_dirs(lang: str, use_server_model: bool) -> tuple[str, str, str
             rec_sub = f"{lang}_PP-OCRv5_mobile_rec"
         elif lang == "ka":
             rec_sub = "ka_PP-OCRv3_mobile_rec"
+        else:
+            raise ValueError(f"No PaddleOCR recognition model available for language '{lang}'.")
 
     return (
         os.path.join(det_path, det_sub),
@@ -275,6 +280,8 @@ def resolve_font_path(lang: str) -> str:
         font_name = "tamil.ttf"
     elif lang == "ka":
         font_name = "kannada.ttf"
+    else:
+        raise ValueError(f"No font available for language '{lang}'.")
 
     return os.path.join(font_dir, font_name)
 
@@ -446,11 +453,15 @@ def log_error(message: str, log_name: str = "error_log.txt") -> str:
     return log_path
 
 
+def grid_cols(item_w: int, max_width: int, padding: int, max_cols: int) -> int:
+    """Calculates the maximum number of frames that can fit in one row."""
+    return min(max_cols, max(1, (max_width + padding) // (item_w + padding)))
+
+
 def prepare_stitch_batch(batch: list[Any], counter: int, zone_idx: int, prefix: str, out_dir: str, target_map: dict[str, Any],
-                         max_width: int, grid_spacing: int, zero_pad_length: int) -> tuple[str, int, int, list[tuple[Any, int, int]]]:
+                         cols: int, grid_spacing: int, zero_pad_length: int) -> tuple[str, int, int, list[tuple[Any, int, int]]]:
     """Calculates grid dimensions and maps coordinates for a batch. Returns queue arguments."""
     h, w = batch[0]["img"].height, batch[0]["img"].width
-    cols = max(1, (max_width + grid_spacing) // (w + grid_spacing))
 
     actual_cols = min(len(batch), cols)
     actual_rows = (len(batch) + cols - 1) // cols
@@ -486,9 +497,8 @@ def prepare_stitch_batch(batch: list[Any], counter: int, zone_idx: int, prefix: 
     return filepath, canvas_w, canvas_h, draw_instructions
 
 
-def get_batch_limit(w: int, h: int, max_width: int, max_height: int, padding: int, max_cols: int, max_rows: int) -> int:
-    """Calculates the maximum number of frames that can fit in a stitched grid."""
-    cols = min(max_cols, max(1, (max_width + padding) // (w + padding)))
+def get_batch_limit(cols: int, h: int, max_height: int, padding: int, max_rows: int) -> int:
+    """Calculates the maximum number of frames that can fit in a stitched grid, for a given column count."""
     rows = min(max_rows, max(1, (max_height + padding) // (h + padding)))
 
     return cols * rows
@@ -658,19 +668,24 @@ def process_ssim_group(union_rects: list[list[float]], group_frames: list[tuple[
     current_similar_batch: list[dict[str, Any]] = []
     prev_crops: list[Any] = []
 
+    def pick_best(batch: list[dict[str, Any]]) -> dict[str, Any]:
+        best = max(batch, key=lambda x: x["det_score"])
+        m = best["m"]
+        img = loaded_grids[m["grid_file"]].crop_rect(m["x"], m["y"], m["x"] + m["w"], m["y"] + m["h"])
+        return {"img": img, "frame_idx": batch[0]["frame_idx"], "det_score": best["det_score"]}
+
     for i, (_, _, det_score, m) in enumerate(group_frames):
         grid_img = loaded_grids[m["grid_file"]]
-        img = grid_img.crop_rect(m["x"], m["y"], m["x"] + m["w"], m["y"] + m["h"])
-        h, w = img.height, img.width
+        w, h = m["w"], m["h"]
 
         current_crops: list[Any] = []
         for rect in union_rects:
             cx1, cy1 = max(0, int(rect[0])), max(0, int(rect[1]))
             cx2, cy2 = min(w, int(rect[2])), min(h, int(rect[3]))
-            current_crops.append(img.crop_rect(cx1, cy1, cx2, cy2))
+            current_crops.append(grid_img.crop_rect(m["x"] + cx1, m["y"] + cy1, m["x"] + cx2, m["y"] + cy2))
 
         item_dict = {
-            "img": img.copy(),
+            "m": m,
             "frame_idx": m["frame_idx"],
             "det_score": det_score
         }
@@ -693,17 +708,13 @@ def process_ssim_group(union_rects: list[list[float]], group_frames: list[tuple[
         if all_lines_match:
             current_similar_batch.append(item_dict)
         else:
-            best_item = max(current_similar_batch, key=lambda x: x["det_score"])
-            best_item["frame_idx"] = current_similar_batch[0]["frame_idx"]
-            local_surviving_items.append(best_item)
+            local_surviving_items.append(pick_best(current_similar_batch))
 
             current_similar_batch = [item_dict]
             prev_crops = current_crops
 
     if current_similar_batch:
-        best_item = max(current_similar_batch, key=lambda x: x["det_score"])
-        best_item["frame_idx"] = current_similar_batch[0]["frame_idx"]
-        local_surviving_items.append(best_item)
+        local_surviving_items.append(pick_best(current_similar_batch))
 
     local_deleted = len(group_frames) - len(local_surviving_items)
 

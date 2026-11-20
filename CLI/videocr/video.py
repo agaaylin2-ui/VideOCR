@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import concurrent.futures
+import copy
 import json
 import os
 import queue
@@ -17,7 +18,7 @@ import wordninja_enhanced as wordninja
 from . import utils
 from .backends import OCRBackend, discover_backends, select_backend
 from .models import PredictedFrames, PredictedSubtitle
-from .pyav_adapter import Capture, get_video_properties
+from .pyav_adapter import Capture, VideoDecodeError, get_video_properties
 
 
 class Video:
@@ -33,6 +34,8 @@ class Video:
     duration_ms: int
     height: int
     width: int
+    coded_width: int
+    sample_aspect_ratio: float
     pred_frames_zone1: list[PredictedFrames]
     pred_frames_zone2: list[PredictedFrames]
     pred_subs: list[PredictedSubtitle]
@@ -56,6 +59,8 @@ class Video:
         props = get_video_properties(self.path)
         self.height = props['height']
         self.width = props['width']
+        self.coded_width = props['coded_width']
+        self.sample_aspect_ratio = props['sample_aspect_ratio']
         self.duration_ms = props['duration_ms']
         self.start_time_offset_ms = props['start_time_offset_ms']
 
@@ -146,9 +151,17 @@ class Video:
             target_w = max(2, int(crop_w * scale_ratio) & ~1)
             target_h = max(2, int(crop_h * scale_ratio) & ~1)
 
+            if self.sample_aspect_ratio and self.sample_aspect_ratio != 1:
+                crop_x_coded = int(crop_x / self.sample_aspect_ratio) & ~1
+                crop_w_coded = max(2, int(crop_w / self.sample_aspect_ratio) & ~1)
+                crop_w_coded = min(crop_w_coded, (self.coded_width - crop_x_coded) & ~1)
+            else:
+                crop_x_coded = crop_x
+                crop_w_coded = crop_w
+
             val_zone['w'] = target_w
             val_zone['h'] = target_h
-            val_zone['crop_str'] = f"{crop_w}:{crop_h}:{crop_x}:{crop_y}"
+            val_zone['crop_str'] = f"{crop_w_coded}:{crop_h}:{crop_x_coded}:{crop_y}"
             val_zone['scale_str'] = f"{target_w}:{target_h}:flags=area:threads=1"
 
         temp_dir = utils.create_clean_temp_dir()
@@ -162,6 +175,24 @@ class Video:
             drain_event = threading.Event()
             error_list: list[Exception] = []
 
+            MAX_STITCH_WIDTH = 1500
+            MAX_STITCH_HEIGHT = 1500
+            GRID_SPACING = 10
+            MAX_STITCH_COLS = 3
+            MAX_STITCH_ROWS = 10
+            FILENAME_ZERO_PADDING = 8
+
+            batch_limits: dict[int, int] = {}
+            zone_cols: dict[int, int] = {}
+            for z_idx, z in enumerate(self.validated_zones):
+                if disable_stitching:
+                    batch_limits[z_idx] = 1
+                    zone_cols[z_idx] = 1
+                else:
+                    cols = utils.grid_cols(z['w'], MAX_STITCH_WIDTH, GRID_SPACING, MAX_STITCH_COLS)
+                    zone_cols[z_idx] = cols
+                    batch_limits[z_idx] = utils.get_batch_limit(cols, z['h'], MAX_STITCH_HEIGHT, GRID_SPACING, MAX_STITCH_ROWS)
+
             def producer_thread() -> None:
                 try:
                     with Capture(self.path) as v:
@@ -173,14 +204,23 @@ class Video:
                         current_index = 0
                         modulo = frames_to_skip + 1
                         first_queued = False
+                        last_timestamp_ms: float | None = None
 
                         while not stop_event.is_set():
-                            success, raw_frame, timestamp_ms = v.read()
+                            try:
+                                success, raw_frame, timestamp_ms = v.read()
+                            except av.error.FFmpegError as e:
+                                if last_timestamp_ms is None:
+                                    location = f"while reading frame {current_index + 1}"
+                                else:
+                                    last_timestamp = utils.get_srt_timestamp_from_ms(last_timestamp_ms - self.start_time_offset_ms).split(',')[0]
+                                    location = (f"while reading frame {current_index + 1} (last successfully decoded timestamp: {last_timestamp})")
+                                raise VideoDecodeError(f"Video decoding failed {location}. FFmpeg reported: {e}") from e
 
                             if not success:
                                 break
 
-                            curr_str = utils.get_srt_timestamp_from_ms(timestamp_ms - self.start_time_offset_ms).split(',')[0]
+                            last_timestamp_ms = timestamp_ms
 
                             # Check Start Time
                             if is_seeking:
@@ -199,9 +239,9 @@ class Video:
 
                             should_process_frame = (current_index % modulo == 0)
                             if should_process_frame:
-                                raw_queue.put((current_index, timestamp_ms, raw_frame, curr_str))
+                                raw_queue.put((current_index, timestamp_ms, raw_frame))
                             else:
-                                raw_queue.put((current_index, timestamp_ms, None, curr_str))
+                                raw_queue.put((current_index, timestamp_ms, None))
 
                             current_index += 1
 
@@ -229,10 +269,10 @@ class Video:
                             raw_queue.put(None)
                             break
 
-                        current_index, timestamp_ms, raw_frame, curr_str = item
+                        current_index, timestamp_ms, raw_frame = item
 
                         if raw_frame is None:
-                            processed_queue.put((current_index, timestamp_ms, None, curr_str))
+                            processed_queue.put((current_index, timestamp_ms, None))
                             continue
 
                         images_to_process: list[dict[str, Any]] = []
@@ -319,13 +359,16 @@ class Video:
                                 'ssim_sample': sample
                             })
 
-                        processed_queue.put((current_index, timestamp_ms, images_to_process, curr_str))
+                        processed_queue.put((current_index, timestamp_ms, images_to_process))
 
                 except Exception as e:
                     error_list.append(e)
                     stop_event.set()
 
             def writer_thread() -> None:
+                max_canvas = bytearray()
+                blank_canvas = memoryview(b'')
+
                 try:
                     while not stop_event.is_set():
                         try:
@@ -336,11 +379,22 @@ class Video:
                             continue
 
                         frame_path, canvas_w, canvas_h, draw_instructions = item
-                        canvas = bytearray(canvas_h * canvas_w * 3)
-                        for img, x, y in draw_instructions:
-                            utils.blit(canvas, canvas_w, img, x, y)
 
-                        jpeg_bytes = utils.encode_frame_to_jpeg(canvas, canvas_w, canvas_h, quality=80)
+                        if len(draw_instructions) == 1:
+                            canvas_view = memoryview(draw_instructions[0][0].data)
+                        else:
+                            active_bytes = canvas_w * canvas_h * 3
+                            if active_bytes > len(max_canvas):
+                                max_canvas = bytearray(active_bytes)
+                                blank_canvas = memoryview(bytes(active_bytes))
+                            else:
+                                memoryview(max_canvas)[:active_bytes] = blank_canvas[:active_bytes]
+                            canvas_view = memoryview(max_canvas)[:active_bytes]
+
+                            for img, x, y in draw_instructions:
+                                utils.blit(canvas_view, canvas_w, img, x, y)
+
+                        jpeg_bytes = utils.encode_frame_to_jpeg(canvas_view, canvas_w, canvas_h, quality=80)
                         with open(frame_path, 'wb') as f:
                             f.write(jpeg_bytes)
 
@@ -365,22 +419,8 @@ class Video:
                 t.start()
                 writers.append(t)
 
-            MAX_STITCH_WIDTH = 1500
-            MAX_STITCH_HEIGHT = 1500
-            GRID_SPACING = 10
-            MAX_STITCH_COLS = 3
-            MAX_STITCH_ROWS = 10
-            FILENAME_ZERO_PADDING = 8
-
-            batch_limits: dict[int, int] = {}
-            for z_idx, z in enumerate(self.validated_zones):
-                if disable_stitching:
-                    batch_limits[z_idx] = 1
-                else:
-                    batch_limits[z_idx] = utils.get_batch_limit(z['w'], z['h'], MAX_STITCH_WIDTH, MAX_STITCH_HEIGHT, GRID_SPACING, MAX_STITCH_COLS, MAX_STITCH_ROWS)
-
             def flush_batch(batch: list[Any], counter: int, zone_idx: int, prefix: str, out_dir: str, target_map: dict[str, Any]) -> int:
-                queue_args = utils.prepare_stitch_batch(batch, counter, zone_idx, prefix, out_dir, target_map, MAX_STITCH_WIDTH, GRID_SPACING, FILENAME_ZERO_PADDING)
+                queue_args = utils.prepare_stitch_batch(batch, counter, zone_idx, prefix, out_dir, target_map, zone_cols[zone_idx], GRID_SPACING, FILENAME_ZERO_PADDING)
                 write_queue.put(queue_args)
                 return counter + 1
 
@@ -409,7 +449,7 @@ class Video:
                         continue
 
                 if expected_index is not None:
-                    buffer: dict[int, tuple[float, Any, str]] = {}
+                    buffer: dict[int, tuple[float, Any]] = {}
                     while not stop_event.is_set():
                         if error_list:
                             break
@@ -421,15 +461,16 @@ class Video:
                                 break
                             continue
 
-                        current_index, timestamp_ms, images_to_process, curr_str = item
-                        buffer[current_index] = (timestamp_ms, images_to_process, curr_str)
+                        current_index, timestamp_ms, images_to_process = item
+                        buffer[current_index] = (timestamp_ms, images_to_process)
 
                         # Process buffer sequentially
                         while expected_index in buffer:
-                            timestamp_ms, images_to_process, curr_str = buffer.pop(expected_index)
+                            timestamp_ms, images_to_process = buffer.pop(expected_index)
                             self.frame_timestamps[expected_index] = timestamp_ms
 
-                            if current_index % 15 == 0:
+                            if expected_index % 15 == 0:
+                                curr_str = utils.get_srt_timestamp_from_ms(timestamp_ms - self.start_time_offset_ms).split(',')[0]
                                 print(f"\rStep 1/3: Processing video... Current: {curr_str} / {target_end_str}, Frame: {expected_index + 1}", end="", flush=True)
 
                             if images_to_process is not None:
@@ -692,43 +733,43 @@ class Video:
                     if current_chunk_groups:
                         chunks.append((current_chunk_groups, current_chunk_grids))
 
-                    for chunk_groups, chunk_grids in chunks:
-                        loaded_grids: dict[str, Any] = {}
+                    with concurrent.futures.ThreadPoolExecutor() as executor:
+                        for chunk_groups, chunk_grids in chunks:
+                            loaded_grids: dict[str, Any] = {}
 
-                        with concurrent.futures.ThreadPoolExecutor() as executor:
                             for g_file, img_array in executor.map(utils.decode_jpeg_to_frame, chunk_grids):
                                 loaded_grids[g_file] = img_array
 
-                        group_args = [
-                            (union_rects, group_frames, loaded_grids, TIGHT_BOX_SSIM_THRESHOLD)
-                            for union_rects, group_frames in chunk_groups
-                        ]
+                            group_args = [
+                                (union_rects, group_frames, loaded_grids, TIGHT_BOX_SSIM_THRESHOLD)
+                                for union_rects, group_frames in chunk_groups
+                            ]
 
-                        for ssim_args in group_args:
-                            surviving_items, local_deleted = utils.process_ssim_group(*ssim_args)
-                            frames_deleted_count += local_deleted
+                            for ssim_args in group_args:
+                                surviving_items, local_deleted = utils.process_ssim_group(*ssim_args)
+                                frames_deleted_count += local_deleted
 
-                            for item in surviving_items:
-                                surviving_frames_meta.add((item["frame_idx"], z_idx))
+                                for item in surviving_items:
+                                    surviving_frames_meta.add((item["frame_idx"], z_idx))
 
-                                filename = f"rec_image_{rec_counter:0{FILENAME_ZERO_PADDING}d}_zone{z_idx}.jpg"
-                                filepath = os.path.join(rec_images_dir, filename)
-                                h, w = item["img"].height, item["img"].width
-                                write_queue.put((filepath, w, h, [(item["img"], 0, 0)]))
+                                    filename = f"rec_image_{rec_counter:0{FILENAME_ZERO_PADDING}d}_zone{z_idx}.jpg"
+                                    filepath = os.path.join(rec_images_dir, filename)
+                                    h, w = item["img"].height, item["img"].width
+                                    write_queue.put((filepath, w, h, [(item["img"], 0, 0)]))
 
-                                rec_image_map[filename] = {
-                                    "frame_idx": item["frame_idx"],
-                                    "zone_idx": z_idx
-                                }
-                                rec_counter += 1
+                                    rec_image_map[filename] = {
+                                        "frame_idx": item["frame_idx"],
+                                        "zone_idx": z_idx
+                                    }
+                                    rec_counter += 1
 
-                            frames_processed += len(ssim_args[1])
+                                frames_processed += len(ssim_args[1])
 
-                            if frames_processed >= next_print_target:
-                                print(f"\rAnalyzing frame {frames_processed} of {total_stitched_frames}", end="", flush=True)
-                                next_print_target = frames_processed + 15
+                                if frames_processed >= next_print_target:
+                                    print(f"\rAnalyzing frame {frames_processed} of {total_stitched_frames}", end="", flush=True)
+                                    next_print_target = frames_processed + 15
 
-                        loaded_grids.clear()
+                            loaded_grids.clear()
 
                 print(f"\rAnalyzing frame {frames_processed} of {total_stitched_frames}", end="", flush=True)
                 success = True
@@ -1018,28 +1059,42 @@ class Video:
         return cleaned_subs
 
     def _merge_dual_zone_subtitles(self, subs1: list[PredictedSubtitle], subs2: list[PredictedSubtitle]) -> list[PredictedSubtitle]:
-        all_subs = sorted(subs1 + subs2, key=lambda s: s.index_start)
+        zones = [sorted(subs1, key=lambda s: s.index_start), sorted(subs2, key=lambda s: s.index_start)]
+        all_subs = zones[0] + zones[1]
 
         if not all_subs:
             return []
 
-        merged_subs = [all_subs[0]]
-        for current_sub in all_subs[1:]:
-            last_sub = merged_subs[-1]
+        boundaries = sorted({s.index_start for s in all_subs} | {s.index_end + 1 for s in all_subs})
+        pointers = [0, 0]
+        merged_subs: list[PredictedSubtitle] = []
 
-            if current_sub.index_start <= last_sub.index_end:
-                last_zone_info = self.validated_zones[last_sub.zone_index]
-                current_zone_info = self.validated_zones[current_sub.zone_index]
+        for seg_start, seg_next in zip(boundaries, boundaries[1:]):
+            active: list[PredictedSubtitle] = []
 
-                if current_zone_info['midpoint_y'] < last_zone_info['midpoint_y']:
-                    last_sub.text = f"{current_sub.text}\n{last_sub.text}"
-                else:
-                    last_sub.text = f"{last_sub.text}\n{current_sub.text}"
+            for z, zone_subs in enumerate(zones):
+                p = pointers[z]
+                while p < len(zone_subs) and zone_subs[p].index_end < seg_start:
+                    p += 1
+                pointers[z] = p
 
-                last_sub.frames.extend(current_sub.frames)
-                last_sub.frames.sort(key=lambda f: f.start_index)
-            else:
-                merged_subs.append(current_sub)
+                if p < len(zone_subs) and zone_subs[p].index_start <= seg_start:
+                    active.append(zone_subs[p])
+
+            if not active:
+                continue
+
+            active.sort(key=lambda s: self.validated_zones[s.zone_index]['midpoint_y'])
+
+            segment = copy.copy(active[0])
+            segment_frame = copy.copy(active[0].frames[0])
+            segment_frame.start_index = seg_start
+            segment_frame.end_index = seg_next - 1
+            segment.frames = [segment_frame]
+            segment.text = '\n'.join(s.text for s in active)
+
+            # Each source cue already passed the duration filter. Keep short overlaps.
+            merged_subs.append(segment)
 
         return merged_subs
 

@@ -39,6 +39,7 @@ import time
 import tkinter.font as tkFont
 import urllib.request
 import webbrowser
+from fractions import Fraction
 from typing import IO, Any, cast
 
 import av
@@ -261,6 +262,7 @@ LANGUAGE_CODE_TO_NATIVE_NAME = {
     'ko': '한국어',
     'ja': '日本語',
     'vi': 'Tiếng Việt',
+    'sl': 'Slovenščina',
 }
 
 # --- Language Data ---
@@ -269,7 +271,7 @@ PADDLEOCR_LANGUAGES_LIST = [
     ('Angika', 'ang'), ('Arabic', 'ar'), ('Avar', 'ava'), ('Azerbaijani', 'az'),
     ('Baluchi', 'bal'), ('Bashkir', 'ba'), ('Basque', 'eu'), ('Belarusian', 'be'),
     ('Bhojpuri', 'bho'), ('Bihari', 'bh'), ('Bosnian', 'bs'), ('Bulgarian', 'bg'),
-    ('Buryat', 'bua'), ('Catalan', 'ca'), ('Chechen', 'che'), ('Chinese & English', 'ch'),
+    ('Buryat', 'bua'), ('Catalan', 'ca'), ('Chechen', 'che'), ('Chinese', 'ch'),
     ('Chinese Traditional', 'chinese_cht'), ('Chuvash', 'cv'), ('Croatian', 'hr'),
     ('Czech', 'cs'), ('Danish', 'da'), ('Dargwa', 'dar'), ('Dutch', 'nl'),
     ('English', 'en'), ('Estonian', 'et'), ('Finnish', 'fi'), ('French', 'fr'),
@@ -383,6 +385,7 @@ PADDLE_TO_ISO_MAP = {
     'ang': 'anp',
     'mah': 'mag',
     'mo': 'ro',
+    'ka': 'kn',
     # Prefer 2-Letter Codes
     'ava': 'av',
     'che': 'ce',
@@ -1243,6 +1246,8 @@ def apply_gui_scaling_change(window: sg.Window, selected_display_value: str) -> 
 
 def reset_settings_to_default(window: sg.Window, keys: list[str]) -> bool:
     """Resets the given setting keys to their default values and updates the GUI/config accordingly."""
+    global pending_brightness_update, brightness_last_event_time
+
     defaults = get_default_settings()
 
     if '--subtitle_alignment' in keys or '--subtitle_alignment2' in keys:
@@ -1283,6 +1288,10 @@ def reset_settings_to_default(window: sg.Window, keys: list[str]) -> bool:
     update_alignment_controls(window, current_values)
     update_ocr_images_controls(window, current_values)
     save_settings(window, current_values)
+
+    if '--brightness_threshold' in keys:
+        brightness_last_event_time = time.time()
+        pending_brightness_update = True
 
     return pending_scaling_display is not None and apply_gui_scaling_change(window, pending_scaling_display)
 
@@ -1519,6 +1528,8 @@ class VideoHandler:
 
         self.newly_opened: bool = False
         self.last_pts: int | None = None
+        self.last_frame: av.VideoFrame | None = None
+        self.last_target_pts: int | None = None
 
         self.graph: av.filter.Graph | None = None
         self.buffer_node: Any = None
@@ -1541,6 +1552,10 @@ class VideoHandler:
         self.buffer_node = self.graph.add_buffer(template=cast(Any, template_frame))
         last = self.graph.add("scale", f"{self.current_new_w}:{self.current_new_h}:flags=bicubic")
         self.buffer_node.link_to(last)
+
+        setsar_node = self.graph.add("setsar", "1")
+        last.link_to(setsar_node)
+        last = setsar_node
 
         fmt_base_node = self.graph.add("format", "rgb24")
         last.link_to(fmt_base_node)
@@ -1601,7 +1616,9 @@ class VideoHandler:
             self.stream = self.container.streams.video[0]
             self.stream.thread_type = 'FRAME'
             self.path = path
-            self.width = int(self.stream.width)
+
+            sar = self.stream.sample_aspect_ratio or Fraction(1, 1)
+            self.width = int(self.stream.width * sar)
             self.height = int(self.stream.height)
             self.newly_opened = True
 
@@ -1632,36 +1649,48 @@ class VideoHandler:
             target_pts = int(target_ms / 1000.0 / tb)
             seek_threshold = int(1.5 / tb)
 
-            should_seek = True
+            if self.last_frame is not None and self.last_target_pts == target_pts:
+                frame: av.VideoFrame | None = self.last_frame
+                self.newly_opened = False
+            else:
+                should_seek = True
 
-            if self.newly_opened and timestamp_ms == 0:
-                should_seek = False
-            elif self.last_pts is not None:
-                if self.last_pts <= target_pts <= (self.last_pts + seek_threshold):
+                if self.newly_opened and timestamp_ms == 0:
                     should_seek = False
+                elif self.last_pts is not None:
+                    if self.last_pts <= target_pts <= (self.last_pts + seek_threshold):
+                        should_seek = False
 
-            self.newly_opened = False
+                self.newly_opened = False
 
-            if should_seek:
-                try:
-                    self.container.seek(target_pts, stream=self.stream)
-                    self.last_pts = None
-                except Exception as e:
-                    if target_pts <= 0 and getattr(e, 'errno', None) == 1:
-                        saved_path = self.path
-                        self.close()
-                        if saved_path:
-                            self.open(saved_path)
-                        self.newly_opened = False
-                    else:
-                        raise
+                if should_seek:
+                    try:
+                        self.container.seek(target_pts, stream=self.stream)
+                        self.last_pts = None
+                        self.last_frame = None
+                    except Exception as e:
+                        if target_pts <= 0 and getattr(e, 'errno', None) == 1:
+                            saved_path = self.path
+                            self.close()
+                            if saved_path:
+                                self.open(saved_path)
+                            self.newly_opened = False
+                        else:
+                            raise
 
-            frame: av.VideoFrame | None = None
-            for f in self.container.decode(self.stream):
-                if f.pts is not None and f.pts >= target_pts:
-                    frame = f
-                    self.last_pts = f.pts
-                    break
+                if self.last_pts == target_pts and self.last_frame is not None:
+                    frame = self.last_frame
+                else:
+                    frame = None
+                    for f in self.container.decode(self.stream):
+                        if f.pts is not None and f.pts >= target_pts:
+                            frame = f
+                            self.last_pts = f.pts
+                            self.last_frame = f
+                            break
+
+            if frame is not None:
+                self.last_target_pts = target_pts
 
             if not frame:
                 return None, 0, 0, 0, 0
@@ -1690,6 +1719,8 @@ class VideoHandler:
         self.width = self.height = 0
         self.duration_ms = 0
         self.last_pts = None
+        self.last_frame = None
+        self.last_target_pts = None
         self.last_display_size = (0, 0)
         self.last_threshold = None
         self.current_new_w = self.current_new_h = 0
@@ -1831,7 +1862,7 @@ def read_pipe(pipe: IO[str], output_list: list[str]) -> None:
 
 def scan_video_folder(folder_path: str) -> list[str]:
     """Scans a folder for common video files and returns a sorted list of full paths."""
-    video_extensions = {'.mp4', '.avi', '.mkv', '.mov', '.webm', '.flv', '.wmv', '.ts', '.m2ts'}
+    video_extensions = {'.mp4', '.avi', '.mkv', '.mov', '.webm', '.flv', '.wmv', '.ts', '.m2ts', '.rm', '.rmvb'}
     video_files: list[str] = []
     if not os.path.isdir(folder_path):
         return []
@@ -2049,6 +2080,7 @@ def run_videocr(args_dict: dict[str, Any], window: sg.Window) -> bool:
     UNSUPPORTED_HARDWARE_ERROR_PATTERN = re.compile(r"Unsupported Hardware Error: (.*)")
     WARNING_HARDWARE_PATTERN = re.compile(r"Hardware Check Warning: (.*)")
     PROCESS_ERROR_PATTERN = re.compile(r"Error: Process failed.")
+    VIDEO_DECODE_ERROR_PATTERN = re.compile(r"^Error: Video decoding failed while reading frame (\d+)(?: \(last successfully decoded timestamp: ([\d:]+)\))?\. FFmpeg reported: (.+)$")
     STEP1_PROGRESS_PATTERN = re.compile(r"Step (\d+)/\d+: Processing video\.\.\. Current: ([\d:]+) / ([\d:]+|Unknown), Frame: (\d+)")
     STEP_IMAGE_PROGRESS_PATTERN = re.compile(r"Step (\d+)/\d+: Performing (?:Text-Detection|OCR) on image (\d+) of (\d+)")
     REPACKING_PATTERN = re.compile(r"Analyzing frame (\d+) of (\d+)")
@@ -2067,6 +2099,7 @@ def run_videocr(args_dict: dict[str, Any], window: sg.Window) -> bool:
 
     expecting_log_path = False
     process_error_message = ""
+    video_decode_error_detected = False
 
     gui_queue.put(('-VIDEOCR_OUTPUT-', LANG.get('status_starting', "Starting subtitle extraction...\n")))
     gui_queue.put(('-PROGRESS-SMOOTH-', {'text': LANG.get('status_starting', "Starting subtitle extraction..."), 'percent': None}))
@@ -2115,6 +2148,19 @@ def run_videocr(args_dict: dict[str, Any], window: sg.Window) -> bool:
                 if PROCESS_ERROR_PATTERN.search(line):
                     process_error_message = line.strip()
                     expecting_log_path = True
+                    continue
+
+                video_decode_error_match = VIDEO_DECODE_ERROR_PATTERN.match(line)
+                if video_decode_error_match:
+                    video_decode_error_detected = True
+                    frame_number, timestamp, ffmpeg_error = video_decode_error_match.groups()
+                    if timestamp:
+                        timestamp_detail = LANG.get('error_video_decode_timestamp', ' (last successfully decoded timestamp: {})').format(timestamp)
+                    else:
+                        timestamp_detail = ""
+                    raw_msg = LANG.get('error_video_decode', 'Video decoding failed while reading frame {}{}. FFmpeg reported: {}')
+                    msg = raw_msg.format(frame_number, timestamp_detail, ffmpeg_error)
+                    gui_queue.put(('-VIDEOCR_OUTPUT-', f"\n{msg}\n"))
                     continue
 
                 fatal_error_match = UNSUPPORTED_HARDWARE_ERROR_PATTERN.search(line)
@@ -2219,7 +2265,7 @@ def run_videocr(args_dict: dict[str, Any], window: sg.Window) -> bool:
             full_stdout = "".join(stdout_lines)
             full_stderr = "".join(stderr_lines)
 
-            if ("Error: Process failed" not in full_stdout and "Unsupported Hardware Error:" not in full_stdout):
+            if (not video_decode_error_detected and "Error: Process failed" not in full_stdout and "Unsupported Hardware Error:" not in full_stdout):
                 log_message = (
                     f"The videocr-cli process crashed with exit code {exit_code}.\n\n"
                     f"--- COMMAND ---\n{' '.join(command)}\n\n"
@@ -2581,7 +2627,7 @@ tab1_content = [
      sg.Button("Add All to Queue", key="-BTN-BATCH-ADD-ALL-")],
     [sg.Text("Progress Info:", key='-LBL-PROGRESS-')],
     [
-        sg.Text("", key="-STATUS-LINE-", size=(None, 1), expand_x=True),
+        sg.Text("", key="-STATUS-LINE-", size=(1, 1), expand_x=True),
         sg.Text("", key="-ETA-LINE-", size=(25, 1), justification='right')
     ],
     [sg.ProgressBar(100, orientation='h', size=(1, 20), key="-PROGRESS-BAR-", expand_x=True)],
@@ -3393,7 +3439,7 @@ while True:
         video_file_types = LANG.get('video_file_types', "Video Files")
         all_file_types = LANG.get('all_file_types', "All Files")
         filename = sg.tk.filedialog.askopenfilename(
-            filetypes=((video_file_types, "*.mp4 *.avi *.mkv *.mov *.webm *.flv *.wmv *.ts *.m2ts"), (all_file_types, "*.*")),
+            filetypes=((video_file_types, "*.mp4 *.avi *.mkv *.mov *.webm *.flv *.wmv *.ts *.m2ts *.rm *.rmvb"), (all_file_types, "*.*")),
             parent=window.TKroot
         )
         if filename:
@@ -3414,11 +3460,15 @@ while True:
         folder = sg.tk.filedialog.askdirectory()
         if folder:
             window['--default_output_dir'].update(folder)
+            values['--default_output_dir'] = folder
+            save_settings(window, values)
 
     elif event == '-BTN-OCR_IMAGES_FOLDER_BROWSE-':
         folder = sg.tk.filedialog.askdirectory()
         if folder:
             window['--ocr_images_output_dir'].update(folder)
+            values['--ocr_images_output_dir'] = folder
+            save_settings(window, values)
 
     elif event == '-BTN-OCR-INFO-':
         if AMD_DESKTOP and values['-OCR_ENGINE_COMBO-'] == AMD_ENGINE:
