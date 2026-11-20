@@ -2,12 +2,19 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 from dataclasses import dataclass
+from functools import lru_cache
 from typing import Any
 
 import wordninja_enhanced as wordninja
 from opencc import OpenCC
 
 from . import utils
+from .target_language import is_mixed_script, select_lines
+
+
+@lru_cache(maxsize=1)
+def _traditional_converter() -> OpenCC:
+    return OpenCC('s2t')
 
 
 @dataclass
@@ -28,7 +35,8 @@ class PredictedFrames:
     _converter = OpenCC('t2s')
 
     def __init__(self, ocr_engine: str, index: int, pred_data: list[list[Any]], conf_threshold: float,
-                 zone_index: int, lang: str, normalize_to_simplified_chinese: bool) -> None:
+                 zone_index: int, lang: str, normalize_to_simplified_chinese: bool, *, select_target: bool = False) -> None:
+        self.select_target = select_target
         self.start_index = index
         self.end_index = index
         self.zone_index = zone_index
@@ -66,7 +74,7 @@ class PredictedFrames:
         for line in lines_of_words:
             line.sort(key=lambda word: word.bounding_box[0][0], reverse=utils.is_language_rtl(lang))
 
-        self.lines = lines_of_words
+        self.lines = select_lines(lines_of_words, lang) if select_target else lines_of_words
 
         if self.lines:
             total_conf = sum(word.confidence for line in self.lines for word in line)
@@ -82,6 +90,8 @@ class PredictedFrames:
 
         if normalize_to_simplified_chinese and lang in ("ch", "zh", "zh-Hans") and self.text:
             self.text = self._converter.convert(self.text)
+        elif select_target and lang == 'chinese_cht' and self.text:
+            self.text = _traditional_converter().convert(self.text)
 
 
 class PredictedSubtitle:
@@ -139,7 +149,9 @@ class PredictedSubtitle:
                 key=lambda t: sum(text_confidences[t]) / len(text_confidences[t])
             )
 
-        if post_processing:
+        # The optional word splitter inserts spaces inside names such as 小明 and times
+        # such as 8:30 when it processes a mixed-script sentence.
+        if post_processing and not (self.frames[0].select_target and is_mixed_script(final_text)):
             if self._language_model is not None and self.lang in ("en", "fr", "german", "it", "es", "pt"):
                 final_text = self._language_model.rejoin(final_text)
             elif self.lang == "ch":

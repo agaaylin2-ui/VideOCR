@@ -1,5 +1,6 @@
 [CmdletBinding()]
-param([string]$Video, [string]$OutputFile, [string]$ImageRun, [string]$RuntimeRun)
+param([string]$Video, [string]$OutputFile, [string]$ImageRun, [string]$RuntimeRun,
+      [ValidateSet('en', 'ch', 'chinese_cht')][string]$Language = 'en')
 $ErrorActionPreference = 'Stop'
 $experiment = Join-Path $PSScriptRoot 'amd_experiment'
 . (Join-Path $experiment 'adapter_selection.ps1')
@@ -40,7 +41,7 @@ try {
     if (-not $Video) {
         $picker = New-Object Windows.Forms.OpenFileDialog
         try {
-            $picker.Title = 'Choose a video with English subtitles visible near the bottom'
+            $picker.Title = 'Choose a video with subtitles visible near the bottom'
             $picker.Filter = 'Video files|*.mp4;*.mkv;*.avi;*.mov;*.webm;*.m4v;*.ts;*.wmv|All files|*.*'
             if ($picker.ShowDialog() -ne 'OK') { return }
             $Video = $picker.FileName
@@ -98,7 +99,7 @@ try {
         $env:PYTHONPATH = "$cache;$deps"
         $env:PYTHONIOENCODING = 'utf-8'
         Write-Host 'Reading your video. Keep this window open until it displays the subtitle path.'
-        & $ort (Join-Path $experiment 'video_export.py') --video $Video --output $OutputFile --image-run $ImageRun --adapter $adapter --diagnostics $logs
+        & $ort (Join-Path $experiment 'video_export.py') --video $Video --output $OutputFile --image-run $ImageRun --adapter $adapter --diagnostics $logs --lang $Language
         if ($LASTEXITCODE -ne 0) { throw "Extraction stopped. See the message above. Execution details: $logs" }
     } finally {
         $env:PYTHONPATH = $oldPath

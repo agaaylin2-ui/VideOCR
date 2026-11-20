@@ -9,6 +9,8 @@ This Windows 11 preview turns English text visible in the bottom third of a vide
 5. Keep the window open. The launcher looks in the project and previous VideOCR folders under Downloads. If prompted for the image test, select the successful **real-image-...** folder containing **paddlex-deps**. If prompted for the runtime, select the **run-...** folder containing **ort-env**. Both are inside an **amd-work** folder.
 6. On first use the launcher downloads five hash-checked video packages to **amd-work**. Later runs reuse that cache. Wait for **VideOCR export complete**. Open the video in VLC and choose **Subtitle > Add Subtitle File** to load the new SRT. You can also open the SRT in Notepad to check its text and timestamps.
 
+The console launcher defaults to English. In the Preview 5 source, pass `-Language ch` or `-Language chinese_cht` to `run-amd-video.ps1` to select a Chinese export.
+
 ### What has been tested
 
 On one RX 9070 XT, the preview exported two cues from a five-second clip containing a real two-line screenshot, a second caption and blank intervals. The SRT matched the installed VideOCR CPU output in text and timestamps. Sampled ONNX Runtime traces recorded DirectML execution in both models and two CPU operations during recognition (Slice and Concat). A longer movie, faint subtitles and variable frame rates still need playback checks. CPU/CUDA users can continue using their usual VideOCR launcher.

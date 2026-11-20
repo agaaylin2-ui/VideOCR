@@ -4,12 +4,12 @@ Double-click the **Windows x64 Setup.exe** and follow the wizard. Open **VideoOC
 
 For the portable ZIP, extract the complete folder and open **VideOCR-AMD.exe** inside it.
 
-1. Open **Process Video → Open File** and select a video with visible English subtitles.
-2. Choose **PaddleOCR - AMD DirectML (RX 9070 XT)** under **OCR Engine**. Use the seek slider to find a subtitle and drag a box around the part of the frame where subtitles appear. Leave the box empty to use the bottom third.
+1. Open **Process Video → Open File** and select a video with burned-in subtitles.
+2. Choose **PaddleOCR - AMD DirectML (RX 9070 XT)** under **OCR Engine**. In Preview 5 choose the export language under **Subtitle Language**. Use the seek slider to find a subtitle and drag a box around the part of the frame where subtitles appear. Leave the box empty to use the bottom third.
 3. Choose a new SRT filename and click **Run**. The log shows the selected adapter, and the progress bar follows extraction. You can also use **Add to Queue** to capture settings for a later job.
 4. In VLC, choose **Subtitle → Add Subtitle File** to check the saved text and timing.
 
-**Advanced Settings** includes start and end times, confidence, frame skipping and other extraction controls. The AMD model pair has been validated with upright English subtitles. Language, CUDA, angle classification, server models and annotated-image export are constrained in this mode. Existing VideOCR installations keep their original configuration. Desktop preferences are saved under the current user's VideOCR-AMD settings.
+**Advanced Settings** includes start and end times, confidence, frame skipping and other extraction controls. Preview 5 uses the same model pair for upright English and Chinese. **Chinese** enables Simplified output by default. Clear **Normalize Traditional to Simplified Chinese** to retain the recognized forms. **Chinese Traditional** renders selected Chinese lines in Traditional characters. CUDA, angle classification, server models and annotated-image export remain unavailable in DirectML mode. Existing VideOCR installations keep their original configuration. Desktop preferences are saved under the current user's VideOCR-AMD settings.
 
 Frame extraction uses the CPU. For longer detection and OCR passes, the app starts up to three DirectML workers on the selected Radeon. The log shows the worker count for each pass. Short passes use one worker to avoid loading extra copies of the models.
 

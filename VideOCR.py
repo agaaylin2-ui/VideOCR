@@ -1046,7 +1046,14 @@ def update_alignment_controls(window: sg.Window, values: dict[str, Any]) -> None
     window['--subtitle_alignment2'].update(disabled=not (is_checked and is_dual_zone))
 
 
+AMD_LANGUAGE_SUFFIXES = {'en': 'en', 'ch': 'zh-Hans', 'chinese_cht': 'zh-Hant'}
 AMD_UNSUPPORTED = ('--use_gpu', '--use_server_model', '--use_angle_cls', '--save_ocr_images')
+
+
+def engine_languages(engine: str) -> list[str]:
+    if engine == AMD_ENGINE:
+        return [name for name, code in PADDLEOCR_LANGUAGES_LIST if code in AMD_LANGUAGE_SUFFIXES]
+    return lens_display_names if "Google Lens" in engine else paddle_display_names
 
 
 def apply_engine_controls(window: sg.Window) -> None:
@@ -1060,7 +1067,9 @@ def apply_engine_controls(window: sg.Window) -> None:
             window[key].update(disabled=False)
     window['--use_gpu'].update(text='AMD DirectML GPU' if active else LANG.get('chk_use_gpu', 'Enable GPU Usage'))
     if active:
-        window['-LANG_COMBO-'].update(values=[DEFAULT_SUBTITLE_LANGUAGE], value=DEFAULT_SUBTITLE_LANGUAGE)
+        languages = engine_languages(AMD_ENGINE)
+        selected = window['-LANG_COMBO-'].get()
+        window['-LANG_COMBO-'].update(values=languages, value=selected if selected in languages else DEFAULT_SUBTITLE_LANGUAGE)
         update_ocr_images_controls(window, {'--save_ocr_images': False})
 
 
@@ -1389,7 +1398,7 @@ def load_settings(window: sg.Window) -> None:
                     saved_engine = DEFAULT_OCR_ENGINE
                 window['-OCR_ENGINE_COMBO-'].update(value=saved_engine)
 
-                active_lang_list = lens_display_names if "Google Lens" in saved_engine else paddle_display_names
+                active_lang_list = engine_languages(saved_engine)
                 window['-LANG_COMBO-'].update(values=active_lang_list, value=DEFAULT_SUBTITLE_LANGUAGE)
 
                 settings_to_load = [
@@ -1483,6 +1492,17 @@ def load_settings(window: sg.Window) -> None:
             log_error(f"Error creating default config file {CONFIG_FILE}: {e}")
 
 
+def subtitle_filename_language(values: dict[str, Any]) -> str:
+    language = values.get('-LANG_COMBO-', DEFAULT_SUBTITLE_LANGUAGE)
+    engine = values.get('-OCR_ENGINE_COMBO-', '')
+    if "Google Lens" in engine:
+        return lens_abbr_lookup.get(language, 'en')
+    code = paddle_abbr_lookup.get(language, 'en')
+    if engine == AMD_ENGINE:
+        return AMD_LANGUAGE_SUFFIXES.get(code, 'en')
+    return PADDLE_TO_ISO_MAP.get(code, code)
+
+
 def generate_output_path(video_path: str, values: dict[str, Any], default_dir: str = DEFAULT_DOCUMENTS_DIR) -> pathlib.Path:
     """Generates a unique output file path for the SRT file based on video path, settings and language."""
     video_file_path = pathlib.Path(video_path)
@@ -1498,14 +1518,7 @@ def generate_output_path(video_path: str, values: dict[str, Any], default_dir: s
         else:
             output_dir = pathlib.Path(output_dir_str)
 
-    selected_lang_name = values.get('-LANG_COMBO-', DEFAULT_SUBTITLE_LANGUAGE)
-    selected_engine_display = values.get('-OCR_ENGINE_COMBO-', "")
-
-    if "Google Lens" in selected_engine_display:
-        iso_code = lens_abbr_lookup.get(selected_lang_name, 'en')
-    else:
-        paddle_code = paddle_abbr_lookup.get(selected_lang_name, 'en')
-        iso_code = PADDLE_TO_ISO_MAP.get(paddle_code, paddle_code)
+    iso_code = subtitle_filename_language(values)
 
     base_output_path = output_dir / f"{video_filename_stem}.{iso_code}.srt"
     output_path = base_output_path
@@ -2014,7 +2027,6 @@ def get_processing_args(values: dict[str, Any], window: sg.Window) -> tuple[dict
 
     if selected_engine_display == AMD_ENGINE:
         args['directml'] = True
-        args['lang'] = 'en'
         for key in AMD_UNSUPPORTED:
             args[key[2:]] = False
 
@@ -2599,7 +2611,7 @@ tab1_content = [
             [sg.Text("OCR Engine:", size=(17, 1), key='-LBL-OCR_ENGINE-'),
             sg.Combo(OCR_ENGINES, default_value=DEFAULT_OCR_ENGINE, key="-OCR_ENGINE_COMBO-", size=(38, 1), readonly=True, enable_events=True, expand_x=True), VerticalStrut()],
             [sg.Text("Subtitle Language:", size=(17, 1), key='-LBL-SUB_LANG-'),
-            sg.Combo(paddle_display_names, default_value=DEFAULT_SUBTITLE_LANGUAGE, key="-LANG_COMBO-", size=(38, 1), readonly=True, enable_events=True, expand_x=True), VerticalStrut()],
+            sg.Combo(engine_languages(DEFAULT_OCR_ENGINE), default_value=DEFAULT_SUBTITLE_LANGUAGE, key="-LANG_COMBO-", size=(38, 1), readonly=True, enable_events=True, expand_x=True), VerticalStrut()],
             [sg.Text("Subtitle Position:", size=(17, 1), key='-LBL-SUB_POS-'),
             sg.Combo([], key="-SUBTITLE_POS_COMBO-", size=(38, 4), readonly=True, enable_events=True, expand_x=True), VerticalStrut()],
         ], pad=(0, None)),
@@ -3290,20 +3302,13 @@ while True:
         elif event == '-LANG_COMBO-':
             if video_path:
                 current_out = values.get('--output', '')
-                selected_lang_name = values.get('-LANG_COMBO-', DEFAULT_SUBTITLE_LANGUAGE)
-                selected_engine_display = values.get('-OCR_ENGINE_COMBO-', DEFAULT_OCR_ENGINE)
-
-                if "Google Lens" in selected_engine_display:
-                    iso_code = lens_abbr_lookup.get(selected_lang_name, 'en')
-                else:
-                    paddle_code = paddle_abbr_lookup.get(selected_lang_name, 'en')
-                    iso_code = PADDLE_TO_ISO_MAP.get(paddle_code, paddle_code)
+                iso_code = subtitle_filename_language(values)
 
                 if current_out:
                     p = pathlib.Path(current_out)
                     directory = p.parent
                     known_codes = set(paddle_abbr_lookup.values()).union(
-                        set(PADDLE_TO_ISO_MAP.values()),
+                        set(PADDLE_TO_ISO_MAP.values()), set(AMD_LANGUAGE_SUFFIXES.values()),
                         set(lens_abbr_lookup.values())
                     )
                     base_name = None
@@ -3337,10 +3342,7 @@ while True:
             selected_engine = values['-OCR_ENGINE_COMBO-']
             current_lang = values['-LANG_COMBO-']
 
-            if "Google Lens" in selected_engine:
-                new_values = lens_display_names
-            else:
-                new_values = paddle_display_names
+            new_values = engine_languages(selected_engine)
 
             if current_lang in new_values:
                 new_value = current_lang
@@ -3348,6 +3350,7 @@ while True:
                 new_value = DEFAULT_SUBTITLE_LANGUAGE
 
             window['-LANG_COMBO-'].update(values=new_values, value=new_value)
+            values['-LANG_COMBO-'] = new_value
             apply_engine_controls(window)
 
             if video_path:
@@ -3472,7 +3475,7 @@ while True:
 
     elif event == '-BTN-OCR-INFO-':
         if AMD_DESKTOP and values['-OCR_ENGINE_COMBO-'] == AMD_ENGINE:
-            custom_popup(window, "AMD DirectML", "Local English subtitle detection and recognition on the Radeon RX 9070 XT. Draw a crop box on the video or choose full frame.", icon=ICON_PATH)
+            custom_popup(window, "AMD DirectML", "Local English, Simplified Chinese and Traditional Chinese subtitle extraction on the Radeon RX 9070 XT. Draw a crop box on the video or choose full frame.", icon=ICON_PATH)
             continue
         custom_popup(window, LANG.get('engine_info', "OCR Engine Information"), LANG.get('engine_message', (
             "PaddleOCR (Det. + Rec.):\n"
@@ -4301,7 +4304,7 @@ while True:
                 saved_engine = args.get('ocr_engine', 'paddleocr')
                 if args.get('directml'):
                     engine_display = AMD_ENGINE
-                    active_lang_list = [DEFAULT_SUBTITLE_LANGUAGE]
+                    active_lang_list = engine_languages(AMD_ENGINE)
                     lookup = paddle_abbr_lookup
                 elif saved_engine == 'google_lens':
                     engine_display = OCR_ENGINES[1]
