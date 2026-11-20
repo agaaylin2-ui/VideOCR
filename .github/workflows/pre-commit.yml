@@ -9,7 +9,8 @@ jobs:
   pre-commit:
     strategy:
       matrix:
-        os: [ubuntu-latest, windows-latest]
+        # Python 3.9 has a hosted build for Ubuntu 24.04.
+        os: [ubuntu-24.04, windows-latest]
 
     runs-on: ${{ matrix.os }}
 
