@@ -1,35 +1,30 @@
 # VideoOCR-AMD
 
-The **AMD Desktop** build opens the original VideOCR interface with video preview, crop boxes, Advanced Settings, queue and progress. Its portable folder includes the DirectML runtime and PP-OCRv6 small models. [Desktop edition and build instructions](AMD_DESKTOP.md)
+Extract burned-in English subtitles from video and save them as a timed SubRip (`.srt`) file. The Windows desktop app uses PaddleOCR with DirectML on the **AMD Radeon RX 9070 XT**. It includes Python, the OCR models, a video preview, adjustable subtitle regions and a processing queue.
 
-## Console preview
+## Download for Windows 11 (x64)
 
-Turn English subtitles burned into a video into a timed SubRip (.srt) file on Windows 11. This fork adds local GPU recognition using ONNX Runtime DirectML and PaddleOCR's PP-OCRv6 small models. The Windows preview has been tested on the **AMD Radeon RX 9070 XT (16 GB)**.
+Open [Releases](https://github.com/aylinlabs/VideoOCR-AMD/releases) and choose the Windows executable under **Assets**. GitHub also provides ZIP and tar.gz archives of the source code.
 
-### Run the console preview on Windows
+- **Desktop Preview 1** is a portable download. Run the executable, choose an extraction folder and open **VideOCR-AMD.exe** inside it. Keep the extracted folders together.
+- **Windows Setup builds** install the app for your Windows account. Run the file ending in **-Setup.exe**, then open **VideoOCR-AMD** from Start. You can remove it through **Settings → Apps → Installed apps**.
 
-1. [Download the ZIP from this fork](https://github.com/agaaylin2-ui/VideoOCR-AMD/archive/refs/heads/master.zip). In Downloads, right-click the ZIP and choose **Extract All**.
-2. Open the extracted folder and double-click **VideOCR-AMD.exe**. Keep the executable and the accompanying folders together.
-3. If you already ran both AMD setup tests, press **Enter**, pick a video and save the suggested subtitle file. For a first installation, install Python 3.12 x64 and 7-Zip, then choose **1** and **2** on successive launches. Each setup step asks for a subtitle screenshot and permission to download dependencies.
-4. Open the video in VLC and choose **Subtitle → Add Subtitle File** to see the result. The preview looks for upright English text in the bottom third of the picture.
+## Extract subtitles
 
-[Windows setup and troubleshooting](AMD_VIDEO_WINDOWS.md) · [Model setup](AMD_TEST_WINDOWS.md) · [Screenshot comparison](REAL_IMAGE_TEST_WINDOWS.md)
+1. Choose **Open File** and select a video.
+2. Select **PaddleOCR - AMD DirectML (RX 9070 XT)**. Seek to a frame with a subtitle and drag a box around the lines you want. The default region is the bottom third of the picture.
+3. Choose a new SRT filename and click **Run**. Open the resulting file as a subtitle track in your video player.
 
-## Hardware and accuracy
+Frame extraction runs on the CPU. On longer jobs, the current desktop source uses up to three DirectML workers for text detection and recognition. The processing log reports the worker count. [Desktop settings and build instructions](AMD_DESKTOP.md)
 
-| Path | What we have tested |
-| --- | --- |
-| Windows 11, RX 9070 XT, DirectML | A two-line subtitle image and short MP4 exports. The reference clip produced the same SRT text and timestamps as the original CPU executable. Runtime profiles recorded GPU work in detection and recognition, with two recognition operations on CPU. |
-| Other Radeon cards | The launcher currently selects an RX 9070 XT. RX 6000, RX 7000 and other RX 9000 models still need adapter-specific tests. |
-| CPU and NVIDIA CUDA | The original GUI and CLI remain available in the source. The AMD launcher is a separate entry point. |
-| Linux AMD | No verified ROCm extraction path in this preview. |
+## Hardware and testing
 
-Long-video timing, difficult backgrounds and accuracy across different fonts still need wider testing. Setup downloads pinned packages and models into local folders. The executable launches the included helpers and reuses those files on later runs.
+The AMD desktop path has been tested on Windows 11 with a 16 GB RX 9070 XT. It currently selects that adapter model. Other Radeon cards and Linux ROCm require separate validation. The original CPU and NVIDIA CUDA workflows are described in the [upstream VideOCR guide](https://github.com/timminator/VideOCR).
 
-## Project and credits
+On one 21:30 episode, the Preview 3 worker update reduced total export time from 3:30 to 2:44. The two runs produced byte-identical subtitles across all 368 cues. This comparison measured performance and consistency on that episode. OCR accuracy also depends on the subtitle region, font and background.
 
-The AMD preview is maintained in **agaaylin2-ui/VideoOCR-AMD**. It builds on Tim Lodemann's VideOCR fork and the earlier work credited in the MIT license. PaddleOCR and PaddleX supply the recognition models and image processing. ONNX Runtime supplies the DirectML execution provider.
+## Source, console tools and credits
 
-[Upstream VideOCR and original GUI/CLI guide](https://github.com/timminator/VideOCR) · [License](LICENSE) · [AMD porting notes](AMD_PORTING_PLAN.md)
+The desktop installer bundles its dependencies. Developers using the separate console launcher can follow the [console setup](AMD_VIDEO_WINDOWS.md), [model setup](AMD_TEST_WINDOWS.md) and [image comparison guide](REAL_IMAGE_TEST_WINDOWS.md).
 
-The launcher source is in [windows/AmdLauncher.cs](windows/AmdLauncher.cs). To rebuild it on Windows x64, run `powershell -NoProfile -File .\windows\build-launcher.ps1` from the repository folder.
+This fork builds on Tim Lodemann’s VideOCR and the earlier contributors credited in the [MIT license](LICENSE). PaddleOCR and PaddleX supply the models and inference pipeline. ONNX Runtime supplies DirectML execution. [AMD porting notes](AMD_PORTING_PLAN.md)

@@ -5,12 +5,13 @@ import unittest
 from pathlib import Path
 
 spec = importlib.util.spec_from_file_location("compare_ort", Path(__file__).with_name("compare_ort.py"))
+assert spec and spec.loader
 module = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(module)
 
 
 class ProfileTests(unittest.TestCase):
-    def test_counts_only_assigned_node_events(self):
+    def test_counts_only_assigned_node_events(self) -> None:
         events = [
             {"cat": "Node", "name": "conv_kernel_time", "dur": 5, "args": {"provider": "DmlExecutionProvider", "op_name": "Conv"}},
             {"cat": "Node", "name": "reshape_kernel_time", "dur": 2, "args": {"provider": "CPUExecutionProvider", "op_name": "Reshape"}},

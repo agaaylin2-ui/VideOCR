@@ -9,7 +9,7 @@ SCRIPT = Path(__file__).resolve().parents[1] / 'amd_experiment' / 'check_directm
 
 
 class ProviderCheckTests(unittest.TestCase):
-    def run_check(self, providers):
+    def run_check(self, providers: list[str]) -> subprocess.CompletedProcess[str]:
         with tempfile.TemporaryDirectory(prefix='provider test ') as tmp:
             root = Path(tmp)
             (root / 'numpy.py').write_text('', encoding='utf-8')
@@ -19,13 +19,13 @@ class ProviderCheckTests(unittest.TestCase):
             script.write_text(SCRIPT.read_text(encoding='utf-8-sig'), encoding='utf-8')
             return subprocess.run([sys.executable, str(script)], capture_output=True, text=True)
 
-    def test_available(self):
+    def test_available(self) -> None:
         result = self.run_check(['DmlExecutionProvider', 'CPUExecutionProvider'])
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('DmlExecutionProvider', result.stdout)
 
     @unittest.skipUnless(os.name == 'nt', 'Windows PowerShell regression')
-    def test_windows_powershell_path_and_arguments(self):
+    def test_windows_powershell_path_and_arguments(self) -> None:
         with tempfile.TemporaryDirectory(prefix='provider test ') as tmp:
             root = Path(tmp)
             (root / 'numpy.py').write_text('', encoding='utf-8')
@@ -37,7 +37,7 @@ class ProviderCheckTests(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stderr)
             self.assertIn('DmlExecutionProvider', result.stdout)
 
-    def test_missing(self):
+    def test_missing(self) -> None:
         result = self.run_check(['CPUExecutionProvider'])
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('not available', result.stderr)

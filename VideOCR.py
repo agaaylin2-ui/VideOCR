@@ -44,12 +44,12 @@ from typing import IO, Any, cast
 
 import av
 import psgdnd as dnd  # type: ignore
-import psutil  # type: ignore
+import psutil
 import PySimpleGUI as sg  # type: ignore
 from wakepy import keep
 
 if sys.platform == "win32":
-    import PyTaskbar
+    import PyTaskbar  # type: ignore[import-untyped, unused-ignore]
     from winotify import Notification, audio  # type: ignore
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('VideOCR')
 else:
@@ -189,7 +189,7 @@ def find_videocr_program() -> str | None:
         return root_path
 
     if AMD_DESKTOP:
-        installed = pathlib.Path(os.environ.get('ProgramFiles', 'C:/Program Files')) / 'VideOCR' / 'videocr-cli.exe'
+        installed = pathlib.Path(os.environ.get('PROGRAMFILES', 'C:/Program Files')) / 'VideOCR' / 'videocr-cli.exe'
         if installed.is_file():
             return str(installed)
     return None
@@ -739,7 +739,7 @@ def kill_process_tree(pid: int) -> None:
             log_error(f"An unexpected error occurred during process kill: {e}")
 
 
-def stop_worker(window, pid):
+def stop_worker(window: sg.Window, pid: int) -> None:
     # The desktop DirectML worker performs inference in the process we started.
     worker = getattr(window, 'directml_worker', None)
     if worker is not None and worker.pid == pid:
@@ -988,7 +988,7 @@ def check_for_updates(window: sg.Window, manual_check: bool = False) -> None:
     """Checks GitHub for a new release."""
     try:
         headers = {'User-Agent': 'VideOCR-GUI'}
-        req = urllib.request.Request("https://api.github.com/repos/agaaylin2-ui/VideoOCR-AMD/releases/latest", headers=headers)
+        req = urllib.request.Request("https://api.github.com/repos/aylinlabs/VideoOCR-AMD/releases/latest", headers=headers)
 
         with urllib.request.urlopen(req, timeout=5) as response:
             if response.status == 200:
@@ -2765,10 +2765,10 @@ tab3_layout = [
         [sg.Text(f"Version: {PROGRAM_VERSION}", font=("Arial", scale_font_size(11)), key='-LBL-ABOUT_VERSION-')],
         [sg.Text("")],
         [sg.Text("Get the newest version here:", font=("Arial", scale_font_size(11)), key='-LBL-GET_NEWEST-')],
-        [sg.Text("https://github.com/agaaylin2-ui/VideoOCR-AMD/releases", font=("Arial", scale_font_size(11), 'underline'), enable_events=True, key="-GITHUB_RELEASES_LINK-")],
+        [sg.Text("https://github.com/aylinlabs/VideoOCR-AMD/releases", font=("Arial", scale_font_size(11), 'underline'), enable_events=True, key="-GITHUB_RELEASES_LINK-")],
         [sg.Text("")],
         [sg.Text("Found a bug or have a suggestion? Feel free to open an issue at:", font=("Arial", scale_font_size(11)), key='-LBL-BUG_REPORT-')],
-        [sg.Text("https://github.com/agaaylin2-ui/VideoOCR-AMD/issues", font=("Arial", scale_font_size(11), 'underline'), enable_events=True, key="-GITHUB_ISSUES_LINK-")],
+        [sg.Text("https://github.com/aylinlabs/VideoOCR-AMD/issues", font=("Arial", scale_font_size(11), 'underline'), enable_events=True, key="-GITHUB_ISSUES_LINK-")],
         [sg.Text("")],
         [sg.HorizontalSeparator()],
     ], element_justification='c', expand_x=True, expand_y=True)]
@@ -3518,10 +3518,10 @@ while True:
         )
 
     elif event == "-GITHUB_ISSUES_LINK-":
-        webbrowser.open("https://github.com/agaaylin2-ui/VideoOCR-AMD/issues")
+        webbrowser.open("https://github.com/aylinlabs/VideoOCR-AMD/issues")
 
     elif event == "-GITHUB_RELEASES_LINK-":
-        webbrowser.open("https://github.com/agaaylin2-ui/VideoOCR-AMD/releases")
+        webbrowser.open("https://github.com/aylinlabs/VideoOCR-AMD/releases")
 
     elif event == '-SAVE_AS_BTN-':
         output_path = values["--output"]

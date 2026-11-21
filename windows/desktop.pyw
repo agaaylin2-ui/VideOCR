@@ -1,9 +1,9 @@
 """Start the original window under the private desktop runtime."""
 import os
-from pathlib import Path
 import runpy
 import sys
 import traceback
+from pathlib import Path
 
 root = Path(__file__).resolve().parent
 sys.argv = [str(root / 'VideOCR.py'), '--amd-desktop']

@@ -41,9 +41,17 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "mypy",
+    "mypy==1.19.1",
+    "types-psutil",
     "pre-commit",
-    "ruff",
+    "ruff==0.15.7",
+]
+amd-check = [
+    "numpy==1.26.4",
+    "onnx==1.17.0",
+    "onnxruntime-directml==1.24.4",
+    "opencv-contrib-python==4.10.0.84",
+    "av==17.1.0",
 ]
 build = [
     "nuitka",
@@ -56,17 +64,23 @@ all = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/agaaylin2-ui/VideoOCR-AMD"
-documentation = "https://github.com/agaaylin2-ui/VideoOCR-AMD/blob/master/README.md"
-Repository = "https://github.com/agaaylin2-ui/VideoOCR-AMD.git"
-Issues = "https://github.com/agaaylin2-ui/VideoOCR-AMD/issues"
+Homepage = "https://github.com/aylinlabs/VideoOCR-AMD"
+documentation = "https://github.com/aylinlabs/VideoOCR-AMD/blob/master/README.md"
+Repository = "https://github.com/aylinlabs/VideoOCR-AMD.git"
+Issues = "https://github.com/aylinlabs/VideoOCR-AMD/issues"
 
 [tool.mypy]
+mypy_path = ["CLI", "amd_experiment"]
 strict = true
 exclude = [
     "VideOCR\\.build",
     "CLI/videocr_cli\\.build"
 ]
+
+# The native ORT wheel and the optional PaddleX APIs lack PEP 561 types.
+[[tool.mypy.overrides]]
+module = ["onnxruntime", "paddlex", "paddlex.inference", "paddlex.inference.common.reader.image_reader"]
+ignore_missing_imports = true
 
 [tool.setuptools]
 packages = []
@@ -78,6 +92,11 @@ version = { attr = "_version.__version__" }
 exclude = ["build", "venv", ".venv", "__pycache__"]
 preview = true
 target-version = "py39"
+
+[tool.ruff.per-file-target-version]
+"amd_experiment/*.py" = "py312"
+"windows/*.py" = "py312"
+"tests/*.py" = "py312"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "W"]

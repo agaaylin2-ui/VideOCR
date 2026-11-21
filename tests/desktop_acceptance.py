@@ -1,15 +1,16 @@
 """Windows hardware acceptance test. Run with the packaged runtime/python.exe."""
 import argparse
 import os
-from pathlib import Path
 import runpy
 import sys
 import tempfile
 import time
+from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 
-def main():
+def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument('app', type=Path, help='Packaged app directory')
     args = parser.parse_args()
@@ -17,13 +18,13 @@ def main():
     sys.path.insert(0, str(app))
     import cv2
     import numpy as np
-    import PySimpleGUI as sg
+    import PySimpleGUI as sg  # type: ignore[import-untyped]
 
     with tempfile.TemporaryDirectory() as temp:
         work = Path(temp)
         os.environ.update(APPDATA=temp, LOCALAPPDATA=temp)
         video = work / 'two areas.mp4'
-        writer = cv2.VideoWriter(str(video), cv2.VideoWriter_fourcc(*'mp4v'), 10, (960, 540))
+        writer = cv2.VideoWriter(str(video), cv2.VideoWriter.fourcc(*'mp4v'), 10, (960, 540))
         assert writer.isOpened()
         for seconds in range(5):
             frame = np.zeros((540, 960, 3), dtype=np.uint8)
@@ -42,7 +43,7 @@ def main():
         start = time.monotonic()
         done = False
 
-        def exercise(window, *a, **kw):
+        def exercise(window: sg.Window, *a: Any, **kw: Any) -> tuple[Any, dict[str, Any]]:
             nonlocal step, done
             # Drive the same events as the main window, after collecting real Tk values.
             if window.Title != 'VideOCR AMD':
@@ -118,7 +119,7 @@ def main():
             runpy.run_path(sys.argv[0], run_name='__main__')
         assert done
 
-        def reopened(window, *a, **kw):
+        def reopened(window: sg.Window, *a: Any, **kw: Any) -> tuple[Any, dict[str, Any]]:
             event, values = read(window, *a, **kw)
             if kw.get('timeout') == 50:
                 assert values['--time_start'] == '0:03' and values['--time_end'] == '0:05'

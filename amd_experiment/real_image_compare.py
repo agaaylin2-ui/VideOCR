@@ -5,16 +5,16 @@ import argparse
 import ast
 import hashlib
 import json
-import re
 import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Any
 
-from ocr_metrics import character_error_rate, match_boxes, normalize
+from ocr_metrics import character_error_rate, match_boxes
 
 
-def parse_paddle(log: Path) -> list[dict]:
+def parse_paddle(log: Path) -> list[dict[str, Any]]:
     lines = []
     for line in log.read_text(encoding='utf-8').splitlines():
         if 'ppocr INFO:' not in line or '[[' not in line:
@@ -27,7 +27,7 @@ def parse_paddle(log: Path) -> list[dict]:
     return lines
 
 
-def parse_paddle_detection(log: Path) -> list[dict]:
+def parse_paddle_detection(log: Path) -> list[dict[str, Any]]:
     boxes = []
     for line in log.read_text(encoding='utf8').splitlines():
         if 'ppocr INFO:' not in line or '[[' not in line:
@@ -39,7 +39,7 @@ def parse_paddle_detection(log: Path) -> list[dict]:
     return boxes
 
 
-def summarize_profile(path: Path) -> dict:
+def summarize_profile(path: Path) -> dict[str, dict[str, int]]:
     counts: dict[str, int] = {}
     cpu_ops: dict[str, int] = {}
     for event in json.loads(path.read_text(encoding='utf-8')):
@@ -59,7 +59,7 @@ def run(command: list[str], log: Path) -> None:
         raise RuntimeError(f'{log.name} failed (exit {process.returncode}); see log')
 
 
-def main():
+def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument('--run', required=True, type=Path, help='Previous successful amd-work/run-* folder')
     parser.add_argument('--images', required=True, nargs='+', type=Path)
@@ -67,7 +67,7 @@ def main():
     parser.add_argument('--adapter', required=True, type=int)
     args = parser.parse_args()
     args.out.mkdir(parents=True, exist_ok=True)
-    report: dict = {'scope': 'Real images; compare decoded OCR and ORT provider traces. Real GPU activity requires independent observation.', 'samples': [], 'status': 'UNVERIFIED', 'coverage': 'UNVERIFIED: manually confirm clear, small, multiline and difficult backgrounds are represented'}
+    report: dict[str, Any] = {'scope': 'Real images; compare decoded OCR and ORT provider traces. Real GPU activity requires independent observation.', 'samples': [], 'status': 'UNVERIFIED', 'coverage': 'UNVERIFIED: manually confirm clear, small, multiline and difficult backgrounds are represented'}
     root = args.run.resolve(strict=True)
     executables = list((root / 'runtime').rglob('paddleocr.exe'))
     models = list((root / 'models').rglob('PaddleOCR.PP-OCRv6.support.files'))
@@ -76,7 +76,8 @@ def main():
     model_root = models[0]
     baseline_manifest = json.loads((root / 'diagnostics' / 'cpu-baseline' / 'baseline.json').read_text(encoding='utf8'))
     export_manifest = json.loads((root / 'onnx' / 'export_manifest.json').read_text(encoding='utf8'))
-    def file_sha(path):
+
+    def file_sha(path: Path) -> str:
         with path.open('rb') as f:
             return hashlib.file_digest(f, 'sha256').hexdigest()
     if file_sha(executables[0]) != baseline_manifest['inputs']['executable']:
@@ -104,7 +105,7 @@ def main():
         model_dirs[kind] = target
     worker = Path(__file__).with_name('real_image_worker.py')
     for index, image in enumerate(args.images, 1):
-        sample = {'image': str(image.resolve()), 'image_sha256': file_sha(image), 'status': 'UNVERIFIED'}
+        sample: dict[str, Any] = {'image': str(image.resolve()), 'image_sha256': file_sha(image), 'status': 'UNVERIFIED'}
         report['samples'].append(sample)
         folder = args.out / f'sample-{index:02d}'
         folder.mkdir(parents=True, exist_ok=True)

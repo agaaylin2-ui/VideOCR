@@ -1,16 +1,23 @@
 """Adapt the two VideOCR image passes to the tested PaddleX/DirectML environment."""
 import hashlib
+import os
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from contextlib import ExitStack
+from itertools import batched, groupby
 from pathlib import Path
+from time import perf_counter
+from typing import Any
 
 from paddlex_runtime import engine_settings, ocr_pipeline, trace_sessions
 from real_image_compare import summarize_profile
 
 
-def verified_models(image_run):
+def verified_models(image_run: Path) -> Path:
     return verified_model_directory(image_run / "diagnostics" / "comparison" / "model-configs")
 
 
-def verified_model_directory(models):
+def verified_model_directory(models: Path) -> Path:
     # SHA-256 of the exact exports and preprocessing/decoder configs from the
     # reference RX 9070 XT run. Reject swapped models or a different dictionary.
     expected = {
@@ -20,14 +27,19 @@ def verified_model_directory(models):
                 'ab078671bb49f06228eadccd34f1bb501e157f7a047095ffb943ba81512c77d1'),
     }
     for kind, hashes in expected.items():
-        for filename, digest in zip(('inference.onnx', 'inference.yml'), hashes):
+        for filename, digest in zip(('inference.onnx', 'inference.yml'), hashes, strict=True):
             with (models / kind / filename).open('rb') as stream:
                 if hashlib.file_digest(stream, 'sha256').hexdigest() != digest:
                     raise ValueError(f'The {kind}/{filename} file differs from the tested model.')
     return models
 
 
-def result_rows(result, detection):
+Trace = dict[str, dict[str, int]]
+Evidence = dict[str, Trace]
+BatchResult = tuple[list[tuple[str, list[list[Any]]]], Evidence]
+
+
+def result_rows(result: Mapping[str, Any], detection: bool) -> Iterator[list[Any]]:
     if detection:
         for box, score in zip(result['dt_polys'], result['dt_scores'], strict=True):
             yield [box.tolist(), float(score)]
@@ -36,48 +48,120 @@ def result_rows(result, detection):
             yield [box.tolist(), (str(text), float(score))]
 
 
+def predict_video_images(images: Sequence[Path], predict: Callable[[list[Any]], Iterable[Mapping[str, Any]]], batch_size: int) -> Iterator[tuple[Path, Mapping[str, Any]]]:
+    from paddlex.inference.common.reader.image_reader import ReadImage
+
+    reader = ReadImage(format='BGR')
+    groups = iter(batched(images, batch_size))
+    with ThreadPoolExecutor(max_workers=1) as loader:
+        paths = next(groups, ())
+        pending = loader.submit(reader, list(map(str, paths)))
+        while paths:
+            frames = pending.result()
+            next_paths = next(groups, ())
+            if next_paths:
+                pending = loader.submit(reader, list(map(str, next_paths)))
+            # Keep order and avoid padding differently sized zones or end grids.
+            for (height, width, _), group in groupby(zip(paths, frames, strict=False), key=lambda pair: pair[1].shape):
+                limit = max(1, 4_000_000 // (width * height))
+                for batch in batched(group, min(limit, batch_size)):
+                    names, pixels = zip(*batch, strict=True)
+                    yield from zip(names, predict(list(pixels)), strict=True)
+            paths = next_paths
+
+
+class _VideoPass:
+    def __init__(self, models: Path, adapter: int, traces: Path, detection: bool) -> None:
+        from paddlex import create_predictor
+
+        self.detection = detection
+        self.evidence: Evidence = {}
+        self.provider, settings = engine_settings('directml', adapter)
+        settings['intra_op_num_threads'] = 1
+        directory = traces / str(os.getpid())
+        directory.mkdir()
+        with trace_sessions(self.provider, directory) as self.sessions:
+            if detection:
+                self.predict = create_predictor(
+                    'PP-OCRv6_small_det', model_dir=str(models / 'det'), device='cpu',
+                    engine='onnxruntime', engine_config=settings, batch_size=4)
+            else:
+                self.predict = ocr_pipeline(models / 'det', models / 'rec', settings, batch_size=4).predict
+        required = {'det'} if detection else {'det', 'rec'}
+        if {kind for kind, _ in self.sessions} != required:
+            raise RuntimeError('Missing expected video ONNX sessions')
+
+    def process(self, images: Sequence[Path]) -> BatchResult:
+        outputs = []
+        for image, result in predict_video_images(images, self.predict, 4):
+            rows = list(result_rows(result, self.detection))
+            for kind, session in self.sessions:
+                if kind in self.evidence or (kind == 'rec' and not len(result['dt_polys'])):
+                    continue
+                trace = summarize_profile(Path(session.end_profiling()))
+                if not trace['counts'].get(self.provider):
+                    raise RuntimeError(f'{kind}: no DirectML execution was recorded.')
+                self.evidence[kind] = trace
+            outputs.append((image.name, rows))
+        return outputs, self.evidence
+
+
+_worker: _VideoPass
+
+
+def _start_worker(models: Path, adapter: int, traces: Path, detection: bool) -> None:
+    global _worker
+    _worker = _VideoPass(models, adapter, traces, detection)
+
+
+def _process_images(images: Sequence[Path]) -> BatchResult:
+    return _worker.process(images)
+
+
 class DirectMLVideoBackend:
     name = 'directml'
 
-    def __init__(self, models, adapter, diagnostics):
+    def __init__(self, models: Path, adapter: int, diagnostics: Path) -> None:
         self.models = models
-        self.provider, self.settings = engine_settings('directml', adapter)
+        self.adapter = adapter
         self.diagnostics = diagnostics
-        self.evidence = {}
+        self.evidence: dict[str, Evidence] = {}
 
-    def run(self, args, extra_env=None):
-        from paddlex import create_predictor
+    def run(self, args: list[str], extra_env: dict[str, str] | None = None) -> Iterator[str]:
+        import psutil
 
         stage = args[1]
         if stage not in ('text_detection', 'ocr'):
             raise ValueError(f'Unexpected video OCR pass: {stage}')
-        detection = stage == 'text_detection'
         images = sorted(Path(args[args.index('--input') + 1]).glob('*.jpg'))
         if not images:
             raise RuntimeError(f'{stage}: VideOCR supplied no images')
         traces = self.diagnostics / stage
         traces.mkdir()
-        with trace_sessions(self.provider, traces) as sessions:
-            if detection:
-                predict = create_predictor('PP-OCRv6_small_det', model_dir=str(self.models / 'det'),
-                                          device='cpu', engine='onnxruntime', engine_config=self.settings)
+        detection = stage == 'text_detection'
+        # Amortize Windows process and model startup over longer passes. Each
+        # process owns its sessions and processes its GPU calls sequentially.
+        images_per_worker = 128 if detection else 256
+        memory_limit = max(1, psutil.virtual_memory().available // (2 * 1024 ** 3))
+        workers = min(3, 1 + len(images) // images_per_worker, memory_limit)
+        config = (self.models, self.adapter, traces, detection)
+        evidence = self.evidence[stage] = {}
+        start = perf_counter()
+        print(f'{stage}: using {workers} DirectML worker(s)', flush=True)
+        chunks = batched(images, 32)
+        results: Iterator[BatchResult]
+        with ExitStack() as stack:
+            if workers == 1:
+                worker = _VideoPass(*config)
+                results = map(worker.process, chunks)
             else:
-                predict = ocr_pipeline(self.models / 'det', self.models / 'rec', self.settings).predict
-        required = {'det'} if detection else {'det', 'rec'}
-        if {kind for kind, _ in sessions} != required:
-            raise RuntimeError(f'{stage}: missing expected ONNX sessions')
-        self.evidence[stage] = {}
-        for image in images:
-            result, = predict(str(image))
-            rows = list(result_rows(result, detection))
-            # Stop profiling each model once it has had input, keeping traces small.
-            for kind, session in sessions:
-                if kind in self.evidence[stage] or (kind == 'rec' and not len(result['dt_polys'])):
-                    continue
-                trace = summarize_profile(Path(session.end_profiling()))
-                if not trace['counts'].get(self.provider):
-                    raise RuntimeError(f'{stage}/{kind}: no DirectML execution was recorded.')
-                self.evidence[stage][kind] = trace
-            yield f'ppocr INFO: **********{image.name}**********'
-            for row in rows:
-                yield f'ppocr INFO: {row!r}'
+                pool = stack.enter_context(ProcessPoolExecutor(
+                    max_workers=workers, initializer=_start_worker, initargs=config))
+                results = pool.map(_process_images, chunks)
+            for outputs, sampled in results:
+                evidence.update(sampled)
+                for name, rows in outputs:
+                    yield f'ppocr INFO: **********{name}**********'
+                    for row in rows:
+                        yield f'ppocr INFO: {row!r}'
+        print(f'\n{stage}: {len(images)} images in {perf_counter() - start:.2f}s', flush=True)

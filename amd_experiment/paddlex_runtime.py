@@ -1,10 +1,12 @@
 """Pinned PaddleX inference setup shared by the screenshot and video tools."""
+from collections.abc import Iterator
 from contextlib import contextmanager
 from importlib.metadata import version
 from pathlib import Path
+from typing import Any
 
 
-def engine_settings(mode, adapter):
+def engine_settings(mode: str, adapter: int) -> tuple[str, dict[str, Any]]:
     import onnxruntime as ort
 
     versions = {'numpy': version('numpy'), 'onnxruntime': ort.__version__, 'paddlex': version('paddlex')}
@@ -21,11 +23,13 @@ def engine_settings(mode, adapter):
     }
 
 
-def ocr_pipeline(det, rec, settings):
+def ocr_pipeline(det: Path, rec: Path, settings: dict[str, Any], *, batch_size: int = 1) -> Any:
     from paddlex import create_pipeline
     from paddlex.inference import load_pipeline_config
 
     config = load_pipeline_config('OCR')
+    config['batch_size'] = batch_size
+    config['SubModules']['TextDetection']['batch_size'] = batch_size
     config['use_doc_preprocessor'] = False
     config['use_textline_orientation'] = False
     for kind, directory, name in [('TextDetection', det, 'PP-OCRv6_small_det'),
@@ -36,14 +40,14 @@ def ocr_pipeline(det, rec, settings):
 
 
 @contextmanager
-def trace_sessions(provider, directory):
+def trace_sessions(provider: str, directory: Path) -> Iterator[list[tuple[str, Any]]]:
     """Intercept session construction during initialization in the dedicated OCR process."""
     import onnxruntime as ort
 
-    sessions = []
+    sessions: list[tuple[str, Any]] = []
     original = ort.InferenceSession
 
-    def build(*args, **kwargs):
+    def build(*args: Any, **kwargs: Any) -> Any:
         options = kwargs['sess_options']
         options.log_severity_level = 3
         options.enable_profiling = True
