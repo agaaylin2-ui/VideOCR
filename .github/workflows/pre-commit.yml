@@ -42,6 +42,8 @@ jobs:
 
       - name: Run desktop regression tests
         if: matrix.python == '3.12'
-        run: |
-          python -m unittest discover -s tests -v
-          python -m unittest discover -s amd_experiment -p test_compare_ort.py -v
+        run: python -m unittest discover -s tests -v
+
+      - name: Run ONNX Runtime profile tests
+        if: matrix.python == '3.12'
+        run: python -m unittest discover -s amd_experiment -p test_compare_ort.py -v
