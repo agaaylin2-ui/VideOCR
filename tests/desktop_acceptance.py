@@ -26,12 +26,16 @@ def main() -> None:
         video = work / 'two areas.mp4'
         writer = cv2.VideoWriter(str(video), cv2.VideoWriter.fourcc(*'mp4v'), 10, (960, 540))
         assert writer.isOpened()
+        fixture = Path(__file__).with_name('fixtures') / 'chinese-door.png'
+        chinese = cv2.imdecode(np.fromfile(fixture, dtype=np.uint8), cv2.IMREAD_COLOR)
+        assert chinese is not None
         for seconds in range(5):
             frame = np.zeros((540, 960, 3), dtype=np.uint8)
             if seconds in (1, 3):
-                for text, y in [('Upper subtitle.', 100), ('Lower subtitle.', 480)]:
-                    cv2.putText(frame, text, (340, y), cv2.FONT_HERSHEY_SIMPLEX, 1.3,
-                                (255, 255, 255), 2, cv2.LINE_AA)
+                cv2.putText(frame, 'Upper subtitle.', (340, 100), cv2.FONT_HERSHEY_SIMPLEX, 1.3,
+                            (255, 255, 255), 2, cv2.LINE_AA)
+                height, width = chinese.shape[:2]
+                frame[430:430 + height, 380:380 + width] = chinese
             for _ in range(10):
                 writer.write(frame)
         writer.release()
@@ -62,6 +66,12 @@ def main() -> None:
             elif step in (1, 7):
                 assert state['current_image_bytes'], 'Preview frame did not decode'
                 assert values['-OCR_ENGINE_COMBO-'] == state['AMD_ENGINE']
+                assert set(window['-LANG_COMBO-'].Values) == {'English', 'Chinese', 'Chinese Traditional'}
+                for language, suffix in [('English', 'en'), ('Chinese', 'zh-Hans'), ('Chinese Traditional', 'zh-Hant')]:
+                    settings = dict(values, **{'-LANG_COMBO-': language})
+                    assert state['generate_output_path'](str(video), settings).name.endswith('.' + suffix + '.srt')
+                if step == 7:
+                    window['-LANG_COMBO-'].update(value='Chinese Traditional')
                 assert str(window['--use_angle_cls'].Widget.cget('state')) == 'disabled'
                 window['--send_notification'].update(False)
                 window['--time_start'].update('0:00' if step == 1 else '0:03')
@@ -85,6 +95,7 @@ def main() -> None:
                 jobs = state['batch_queue']
                 assert len(jobs) == 2 and jobs[0]['args']['crop_y'] < jobs[1]['args']['crop_y']
                 assert all(job['args']['directml'] for job in jobs)
+                assert [job['args']['lang'] for job in jobs] == ['en', 'chinese_cht']
                 event = '-BTN-RUN-'
             elif step == 13:
                 if window.is_processing:
@@ -92,7 +103,7 @@ def main() -> None:
                 log = window['-OUTPUT-'].get()
                 assert 'DirectML adapter' in log, log
                 for name, text, span in [('upper', 'Upper subtitle.', '01,000 --> 00:00:02,000'),
-                                         ('lower', 'Lower subtitle.', '03,000 --> 00:00:04,000')]:
+                                         ('lower', '大門打開了', '03,000 --> 00:00:04,000')]:
                     content = (work / (name + '.srt')).read_text(encoding='utf8').strip()
                     assert content.splitlines()[-1] == text and span in content, content
                 print('PASS: crop, seek, queue, settings and timed SRT on DirectML', flush=True)
@@ -122,6 +133,7 @@ def main() -> None:
         def reopened(window: sg.Window, *a: Any, **kw: Any) -> tuple[Any, dict[str, Any]]:
             event, values = read(window, *a, **kw)
             if kw.get('timeout') == 50:
+                assert values['-LANG_COMBO-'] == 'Chinese Traditional'
                 assert values['--time_start'] == '0:03' and values['--time_end'] == '0:05'
                 return sg.WIN_CLOSED, values
             return event, values

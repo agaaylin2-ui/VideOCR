@@ -12,7 +12,7 @@ def export(args: argparse.Namespace) -> None:
     from video_backend import verified_models
 
     write_srt(args.video, args.output, verified_models(args.image_run.resolve()),
-              args.adapter, args.diagnostics, ocr_engine='paddleocr', lang='en')
+              args.adapter, args.diagnostics, ocr_engine='paddleocr', lang=args.lang)
 
 
 def export_desktop(video_path: str, file_path: str, **settings: Any) -> None:
@@ -65,6 +65,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     for option in ('video', 'output', 'image-run', 'diagnostics'):
         parser.add_argument('--' + option, type=Path, required=True)
+    parser.add_argument('--lang', default='en', help='Subtitle language (en, ch or chinese_cht)')
     parser.add_argument('--adapter', type=int, required=True)
     os.environ['PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK'] = 'True'
     export(parser.parse_args())

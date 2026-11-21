@@ -4,6 +4,7 @@ import sys
 
 from . import utils
 from .backends import OCRBackend
+from .target_language import SUPPORTED_LANGUAGES
 from .video import Video
 
 
@@ -40,9 +41,9 @@ def save_subtitles_to_file(
 
         google_lens_path = utils.find_executable("chrome-lens")
     else:
-        if (directml_backend.name != 'directml' or ocr_engine != 'paddleocr' or lang != 'en'
+        if (directml_backend.name != 'directml' or ocr_engine != 'paddleocr' or lang not in SUPPORTED_LANGUAGES
                 or use_gpu or use_server_model or use_angle_cls or save_ocr_images):
-            raise ValueError("The DirectML preview supports English with PP-OCRv6 small models and upright text only.")
+            raise ValueError("The DirectML preview supports en, ch and chinese_cht with PP-OCRv6 small models and upright text only.")
         # The in-process backend owns its checked model paths. These identifiers
         # occupy the legacy command fields used by Video's two OCR passes.
         paddleocr_path, google_lens_path = 'directml', ''

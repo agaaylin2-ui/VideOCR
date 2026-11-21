@@ -937,7 +937,8 @@ class Video:
                 ocr_result = ocr_outputs.get((frame_index, zone_index), [])
                 pred_data = [ocr_result] if ocr_result else [[]]
 
-                predicted_frame = PredictedFrames(ocr_engine, frame_index, pred_data, conf_threshold_ratio, zone_index, lang, normalize_to_simplified_chinese)
+                predicted_frame = PredictedFrames(ocr_engine, frame_index, pred_data, conf_threshold_ratio, zone_index, lang,
+                                                  normalize_to_simplified_chinese, select_target=self.ocr_backend.name == 'directml')
                 frame_predictions_dict[zone_index][frame_index] = predicted_frame
 
             frame_predictions_list: dict[int, list[PredictedFrames]] = {}
