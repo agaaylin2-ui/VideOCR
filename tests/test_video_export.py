@@ -1,15 +1,15 @@
 """Optional Windows hardware test using the previous verified OCR experiment."""
 import os
-from pathlib import Path
 import subprocess
 import tempfile
 import unittest
+from pathlib import Path
 
 
 @unittest.skipUnless(os.name == 'nt' and os.environ.get('VIDEOCR_TEST_AMD_VIDEO') == '1',
                      'Set VIDEOCR_TEST_AMD_VIDEO=1 on the prepared RX 9070 XT machine')
 class HardwareExportTests(unittest.TestCase):
-    def test_two_cues_blank_gaps_and_existing_output(self):
+    def test_two_cues_blank_gaps_and_existing_output(self) -> None:
         import cv2
         import numpy as np
 
@@ -17,7 +17,7 @@ class HardwareExportTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             video = Path(folder) / 'two cues.mp4'
             output = video.with_suffix('.srt')
-            writer = cv2.VideoWriter(str(video), cv2.VideoWriter_fourcc(*'mp4v'), 10, (960, 540))
+            writer = cv2.VideoWriter(str(video), cv2.VideoWriter.fourcc(*'mp4v'), 10, (960, 540))
             self.assertTrue(writer.isOpened())
             try:
                 for text in ['', 'Everything is ready.', '', 'A different subtitle.', '']:

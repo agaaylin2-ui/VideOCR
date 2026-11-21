@@ -4,12 +4,12 @@ import hashlib
 import json
 import subprocess
 import sys
-
-import onnx
 from pathlib import Path
 
+import onnx
 
-def digest(path):
+
+def digest(path: Path) -> str:
     h = hashlib.sha256()
     with path.open("rb") as f:
         for block in iter(lambda: f.read(1024 * 1024), b""):
@@ -17,7 +17,7 @@ def digest(path):
     return h.hexdigest()
 
 
-def main():
+def main() -> int:
     p = argparse.ArgumentParser()
     p.add_argument("--models", required=True, type=Path)
     p.add_argument("--out", required=True, type=Path)

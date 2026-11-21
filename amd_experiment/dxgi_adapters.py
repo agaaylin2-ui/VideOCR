@@ -1,8 +1,12 @@
 """List DXGI adapters using the same EnumAdapters ordering as ORT DirectML."""
+from __future__ import annotations
+
 import ctypes
 import json
 import sys
+from collections.abc import Callable
 from ctypes import wintypes
+from typing import Any, TypedDict
 
 
 class GUID(ctypes.Structure):
@@ -17,12 +21,21 @@ class AdapterDesc(ctypes.Structure):
     _fields_ = [("description", wintypes.WCHAR * 128), ("vendor", wintypes.UINT), ("device", wintypes.UINT), ("subsystem", wintypes.UINT), ("revision", wintypes.UINT), ("dedicated_video", ctypes.c_size_t), ("dedicated_system", ctypes.c_size_t), ("shared_system", ctypes.c_size_t), ("luid", LUID)]
 
 
-def method(obj, index, result, *args):
+def method(obj: ctypes.c_void_p, index: int, result: Any, *args: Any) -> Callable[..., int]:
     table = ctypes.cast(obj, ctypes.POINTER(ctypes.POINTER(ctypes.c_void_p))).contents
-    return ctypes.WINFUNCTYPE(result, ctypes.c_void_p, *args)(table[index])
+    function: Callable[..., int] = ctypes.WINFUNCTYPE(result, ctypes.c_void_p, *args)(table[index])
+    return function
 
 
-def enumerate_adapters():
+class Adapter(TypedDict):
+    index: int
+    name: str
+    vendor_id: str
+    device_id: str
+    dedicated_bytes: int
+
+
+def enumerate_adapters() -> list[Adapter]:
     if sys.platform != "win32":
         raise RuntimeError("DXGI is available only on Windows")
     iid = GUID(0x7B7166EC, 0x21C7, 0x44AE, (ctypes.c_ubyte * 8)(0xB2, 0x1A, 0xC9, 0xAE, 0x32, 0x1A, 0xE3, 0x69))
@@ -33,7 +46,7 @@ def enumerate_adapters():
     hr = dxgi.CreateDXGIFactory(ctypes.byref(iid), ctypes.byref(factory))
     if hr < 0:
         raise OSError(f"CreateDXGIFactory failed: 0x{hr & 0xffffffff:08x}")
-    adapters = []
+    adapters: list[Adapter] = []
     try:
         enum = method(factory, 7, ctypes.c_long, wintypes.UINT, ctypes.POINTER(ctypes.c_void_p))
         for index in range(128):

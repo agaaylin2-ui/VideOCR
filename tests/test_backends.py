@@ -1,6 +1,7 @@
 import importlib.util
 import tempfile
 import unittest
+from collections.abc import Iterator
 from pathlib import Path
 
 path = Path(__file__).resolve().parents[1] / "CLI/videocr/backends.py"
@@ -11,14 +12,14 @@ spec.loader.exec_module(backends)
 
 
 class BackendTests(unittest.TestCase):
-    def test_discovery_requires_executable(self):
+    def test_discovery_requires_executable(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             exe = Path(tmp) / "paddleocr.exe"
             self.assertEqual(backends.discover_backends(str(exe), lambda *a: iter(())), {})
             exe.touch()
             self.assertEqual(list(backends.discover_backends(str(exe), lambda *a: iter(()))), ["legacy"])
 
-    def test_auto_and_explicit_selection(self):
+    def test_auto_and_explicit_selection(self) -> None:
         backend = backends.LegacyPaddleBackend(lambda *a: iter(()))
         registry = {"legacy": backend}
         self.assertIs(backends.select_backend(registry), backend)
@@ -29,9 +30,10 @@ class BackendTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             backends.select_backend({}, "directml", allow_fallback=True)
 
-    def test_legacy_command_and_environment_unchanged(self):
+    def test_legacy_command_and_environment_unchanged(self) -> None:
         calls = []
-        def stream(*args):
+
+        def stream(*args: object) -> Iterator[str]:
             calls.append(args)
             return iter(["output"])
         backend = backends.LegacyPaddleBackend(stream)

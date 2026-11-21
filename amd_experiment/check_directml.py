@@ -2,7 +2,7 @@
 import sys
 
 
-def main():
+def main() -> int:
     import numpy  # noqa: F401
     import onnxruntime
 

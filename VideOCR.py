@@ -44,12 +44,12 @@ from typing import IO, Any, cast
 
 import av
 import psgdnd as dnd  # type: ignore
-import psutil  # type: ignore
+import psutil
 import PySimpleGUI as sg  # type: ignore
 from wakepy import keep
 
 if sys.platform == "win32":
-    import PyTaskbar
+    import PyTaskbar  # type: ignore[import-untyped, unused-ignore]
     from winotify import Notification, audio  # type: ignore
     ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('VideOCR')
 else:
@@ -189,7 +189,7 @@ def find_videocr_program() -> str | None:
         return root_path
 
     if AMD_DESKTOP:
-        installed = pathlib.Path(os.environ.get('ProgramFiles', 'C:/Program Files')) / 'VideOCR' / 'videocr-cli.exe'
+        installed = pathlib.Path(os.environ.get('PROGRAMFILES', 'C:/Program Files')) / 'VideOCR' / 'videocr-cli.exe'
         if installed.is_file():
             return str(installed)
     return None
@@ -739,7 +739,7 @@ def kill_process_tree(pid: int) -> None:
             log_error(f"An unexpected error occurred during process kill: {e}")
 
 
-def stop_worker(window, pid):
+def stop_worker(window: sg.Window, pid: int) -> None:
     # The desktop DirectML worker performs inference in the process we started.
     worker = getattr(window, 'directml_worker', None)
     if worker is not None and worker.pid == pid:
