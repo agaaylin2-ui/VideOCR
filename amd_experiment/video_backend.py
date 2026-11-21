@@ -1,21 +1,23 @@
 """Adapt the two VideOCR image passes to the tested PaddleX/DirectML environment."""
 import hashlib
 import os
-from contextlib import ExitStack
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from contextlib import ExitStack
 from itertools import batched, groupby
 from pathlib import Path
 from time import perf_counter
+from typing import Any
 
 from paddlex_runtime import engine_settings, ocr_pipeline, trace_sessions
 from real_image_compare import summarize_profile
 
 
-def verified_models(image_run):
+def verified_models(image_run: Path) -> Path:
     return verified_model_directory(image_run / "diagnostics" / "comparison" / "model-configs")
 
 
-def verified_model_directory(models):
+def verified_model_directory(models: Path) -> Path:
     # SHA-256 of the exact exports and preprocessing/decoder configs from the
     # reference RX 9070 XT run. Reject swapped models or a different dictionary.
     expected = {
@@ -25,14 +27,19 @@ def verified_model_directory(models):
                 'ab078671bb49f06228eadccd34f1bb501e157f7a047095ffb943ba81512c77d1'),
     }
     for kind, hashes in expected.items():
-        for filename, digest in zip(('inference.onnx', 'inference.yml'), hashes):
+        for filename, digest in zip(('inference.onnx', 'inference.yml'), hashes, strict=True):
             with (models / kind / filename).open('rb') as stream:
                 if hashlib.file_digest(stream, 'sha256').hexdigest() != digest:
                     raise ValueError(f'The {kind}/{filename} file differs from the tested model.')
     return models
 
 
-def result_rows(result, detection):
+Trace = dict[str, dict[str, int]]
+Evidence = dict[str, Trace]
+BatchResult = tuple[list[tuple[str, list[list[Any]]]], Evidence]
+
+
+def result_rows(result: Mapping[str, Any], detection: bool) -> Iterator[list[Any]]:
     if detection:
         for box, score in zip(result['dt_polys'], result['dt_scores'], strict=True):
             yield [box.tolist(), float(score)]
@@ -41,7 +48,7 @@ def result_rows(result, detection):
             yield [box.tolist(), (str(text), float(score))]
 
 
-def predict_video_images(images, predict, batch_size):
+def predict_video_images(images: Sequence[Path], predict: Callable[[list[Any]], Iterable[Mapping[str, Any]]], batch_size: int) -> Iterator[tuple[Path, Mapping[str, Any]]]:
     from paddlex.inference.common.reader.image_reader import ReadImage
 
     reader = ReadImage(format='BGR')
@@ -55,20 +62,20 @@ def predict_video_images(images, predict, batch_size):
             if next_paths:
                 pending = loader.submit(reader, list(map(str, next_paths)))
             # Keep order and avoid padding differently sized zones or end grids.
-            for (height, width, _), group in groupby(zip(paths, frames), key=lambda pair: pair[1].shape):
+            for (height, width, _), group in groupby(zip(paths, frames, strict=False), key=lambda pair: pair[1].shape):
                 limit = max(1, 4_000_000 // (width * height))
                 for batch in batched(group, min(limit, batch_size)):
-                    names, pixels = zip(*batch)
+                    names, pixels = zip(*batch, strict=True)
                     yield from zip(names, predict(list(pixels)), strict=True)
             paths = next_paths
 
 
 class _VideoPass:
-    def __init__(self, models, adapter, traces, detection):
+    def __init__(self, models: Path, adapter: int, traces: Path, detection: bool) -> None:
         from paddlex import create_predictor
 
         self.detection = detection
-        self.evidence = {}
+        self.evidence: Evidence = {}
         self.provider, settings = engine_settings('directml', adapter)
         settings['intra_op_num_threads'] = 1
         directory = traces / str(os.getpid())
@@ -84,7 +91,7 @@ class _VideoPass:
         if {kind for kind, _ in self.sessions} != required:
             raise RuntimeError('Missing expected video ONNX sessions')
 
-    def process(self, images):
+    def process(self, images: Sequence[Path]) -> BatchResult:
         outputs = []
         for image, result in predict_video_images(images, self.predict, 4):
             rows = list(result_rows(result, self.detection))
@@ -99,25 +106,28 @@ class _VideoPass:
         return outputs, self.evidence
 
 
-def _start_worker(models, adapter, traces, detection):
+_worker: _VideoPass
+
+
+def _start_worker(models: Path, adapter: int, traces: Path, detection: bool) -> None:
     global _worker
     _worker = _VideoPass(models, adapter, traces, detection)
 
 
-def _process_images(images):
+def _process_images(images: Sequence[Path]) -> BatchResult:
     return _worker.process(images)
 
 
 class DirectMLVideoBackend:
     name = 'directml'
 
-    def __init__(self, models, adapter, diagnostics):
+    def __init__(self, models: Path, adapter: int, diagnostics: Path) -> None:
         self.models = models
         self.adapter = adapter
         self.diagnostics = diagnostics
-        self.evidence = {}
+        self.evidence: dict[str, Evidence] = {}
 
-    def run(self, args, extra_env=None):
+    def run(self, args: list[str], extra_env: dict[str, str] | None = None) -> Iterator[str]:
         import psutil
 
         stage = args[1]
@@ -139,6 +149,7 @@ class DirectMLVideoBackend:
         start = perf_counter()
         print(f'{stage}: using {workers} DirectML worker(s)', flush=True)
         chunks = batched(images, 32)
+        results: Iterator[BatchResult]
         with ExitStack() as stack:
             if workers == 1:
                 worker = _VideoPass(*config)

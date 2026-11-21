@@ -1,4 +1,6 @@
 """Compare raw ONNX tensors; profiling evidence is not full OCR accuracy."""
+from __future__ import annotations
+
 import argparse
 import collections
 import hashlib
@@ -6,15 +8,16 @@ import json
 import platform
 import sys
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import onnxruntime as ort
 
 
-def summarize_profile(path):
+def summarize_profile(path: Path) -> dict[str, Any]:
     events = json.loads(Path(path).read_text(encoding="utf-8"))
-    counts = collections.Counter()
-    durations = collections.Counter()
+    counts: collections.Counter[str] = collections.Counter()
+    durations: collections.Counter[str] = collections.Counter()
     nodes = []
     for event in events:
         args = event.get("args", {})
@@ -26,7 +29,7 @@ def summarize_profile(path):
     return {"node_events": dict(counts), "node_duration_us": dict(durations), "nodes": nodes}
 
 
-def create_session(model, provider, adapter, profile_prefix):
+def create_session(model: Path, provider: str, adapter: int, profile_prefix: Path) -> ort.InferenceSession:
     opts = ort.SessionOptions()
     opts.enable_mem_pattern = False
     opts.execution_mode = ort.ExecutionMode.ORT_SEQUENTIAL
@@ -40,7 +43,7 @@ def create_session(model, provider, adapter, profile_prefix):
     return sess
 
 
-def main():
+def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--model", required=True, type=Path)
     p.add_argument("--input", required=True, type=Path, help="NPZ whose array names match all model inputs")
@@ -51,7 +54,7 @@ def main():
     p.add_argument("--atol", type=float, default=1e-4)
     a = p.parse_args()
     a.out.mkdir(parents=True, exist_ok=True)
-    report = {"model_sha256": hashlib.sha256(a.model.read_bytes()).hexdigest(), "input_sha256": hashlib.sha256(a.input.read_bytes()).hexdigest(), "platform": platform.platform(), "ort_version": ort.__version__, "available_providers": ort.get_available_providers(), "adapter_index": a.adapter, "note": "Node assignment is ORT evidence, not independent proof of physical GPU activity or OCR accuracy.", "runs": {}}
+    report: dict[str, Any] = {"model_sha256": hashlib.sha256(a.model.read_bytes()).hexdigest(), "input_sha256": hashlib.sha256(a.input.read_bytes()).hexdigest(), "platform": platform.platform(), "ort_version": ort.__version__, "available_providers": ort.get_available_providers(), "adapter_index": a.adapter, "note": "Node assignment is ORT evidence, not independent proof of physical GPU activity or OCR accuracy.", "runs": {}}
     report_path = a.out / "comparison.json"
     try:
         with np.load(a.input, allow_pickle=False) as archive:
@@ -67,7 +70,7 @@ def main():
                 raise ValueError(f"NPZ keys {list(inputs)} do not match model inputs {sorted(expected)}")
             outputs[provider] = sess.run(None, inputs)
             profile = sess.end_profiling()
-            summary = summarize_profile(profile)
+            summary = summarize_profile(Path(profile))
             report["runs"][provider] = {"session_providers": sess.get_providers(), "profile_file": str(Path(profile).resolve()), "profile": summary}
             if provider == "DmlExecutionProvider" and not summary["node_events"].get(provider):
                 raise RuntimeError("No DirectML node execution recorded; GPU execution not established")
@@ -76,7 +79,7 @@ def main():
             if len(left) != len(right):
                 raise ValueError("Output count mismatch")
             comparisons = []
-            for i, (x, y) in enumerate(zip(left, right)):
+            for i, (x, y) in enumerate(zip(left, right, strict=True)):
                 if x.shape != y.shape:
                     raise ValueError(f"Output {i} shape mismatch: {x.shape} vs {y.shape}")
                 finite = bool(np.isfinite(x).all() and np.isfinite(y).all())

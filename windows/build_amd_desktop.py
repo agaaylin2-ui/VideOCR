@@ -3,21 +3,21 @@ import argparse
 import hashlib
 import io
 import os
-from pathlib import Path
 import shutil
 import struct
 import subprocess
 import sys
 import tempfile
-from urllib.request import urlopen
 import zipfile
+from pathlib import Path
+from urllib.request import urlopen
 
 ROOT = Path(__file__).resolve().parents[1]
 TASKBAR = 'e9400333a2f34c68eca3ce2daed711b1a748db7d'
 TASKBAR_HASH = '2c2feb8c8fa8254a9cab1d79a3418fbcf8ec68ccdd1c63dd7fcc6158eb312cc8'
 
 
-def install_packages(target, wheelhouses):
+def install_packages(target: Path, wheelhouses: list[Path] | None) -> None:
     locks = ROOT / 'amd_experiment' / 'locks'
     lines = []
     for name in ('directml', 'real-ocr-extra', 'video', 'gui'):
@@ -44,12 +44,17 @@ def install_packages(target, wheelhouses):
                 shutil.move(str(item), target / item.name)
 
 
-def build(out, image_run, wheelhouses, taskbar_zip, model_directory=None):
+def build(out: Path, image_run: Path | None, wheelhouses: list[Path] | None, taskbar_zip: Path | None, model_directory: Path | None = None) -> None:
     if os.name != 'nt' or sys.version_info[:2] != (3, 12) or struct.calcsize('P') != 8:
         raise RuntimeError('Build with Windows CPython 3.12 x64 including Tcl/Tk.')
     sys.path.insert(0, str(ROOT / 'amd_experiment'))
     from video_backend import verified_model_directory, verified_models
-    models = verified_model_directory(model_directory) if model_directory else verified_models(image_run)
+    if model_directory is not None:
+        models = verified_model_directory(model_directory)
+    elif image_run is not None:
+        models = verified_models(image_run)
+    else:
+        raise ValueError("Specify a model directory or an image run.")
     out.mkdir(parents=True, exist_ok=False)
     runtime = out / 'runtime'
     runtime.mkdir()

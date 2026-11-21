@@ -3,13 +3,12 @@ from __future__ import annotations
 
 import argparse
 import json
-from importlib.metadata import version
 import os
-import sys
+from importlib.metadata import version
 from pathlib import Path
 
 
-def main():
+def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument('--image', type=Path, required=True)
     p.add_argument('--det', type=Path, required=True)
@@ -37,7 +36,7 @@ def main():
     if len(outputs) != 1:
         raise RuntimeError(f'Expected one OCR result, got {len(outputs)}')
     result = outputs[0]
-    lines = [{'polygon': poly.tolist(), 'text': str(text), 'confidence': float(score)} for poly, text, score in zip(result['rec_polys'], result['rec_texts'], result['rec_scores'])]
+    lines = [{'polygon': poly.tolist(), 'text': str(text), 'confidence': float(score)} for poly, text, score in zip(result['rec_polys'], result['rec_texts'], result['rec_scores'], strict=False)]
     if len(lines) != len(result['rec_texts']) or len(lines) != len(result['rec_polys']) or len(lines) != len(result['rec_scores']):
         raise RuntimeError('Inconsistent recognition result lengths')
     profiles = [{'model': name, 'file': session.end_profiling()} for name, session in sessions]
@@ -46,5 +45,4 @@ def main():
 
 
 if __name__ == '__main__':
-    sys.exit(main())
-
+    main()

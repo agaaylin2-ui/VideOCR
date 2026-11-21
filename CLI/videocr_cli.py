@@ -193,14 +193,18 @@ def main() -> None:
         disable_wakelock = args.allow_system_sleep or utils.is_running_in_container()
         keep_awake_manager = nullcontext() if disable_wakelock else keep.running()
 
-        export = save_subtitles_to_file
+        desktop_export = None
         if args.directml:
-            from pathlib import Path
+            if sys.version_info >= (3, 12):
+                from pathlib import Path
 
-            sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'amd_experiment'))
-            from video_export import export_desktop
+                sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'amd_experiment'))
+                from video_export import export_desktop
 
-            export = export_desktop
+                desktop_export = export_desktop
+            else:
+                raise ValueError("The AMD desktop requires Python 3.12.")
+        export = desktop_export or save_subtitles_to_file
         with keep_awake_manager:
             export(
                 video_path=args.video_path,

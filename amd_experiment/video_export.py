@@ -2,19 +2,20 @@
 import argparse
 import json
 import os
-from pathlib import Path
 import sys
 import tempfile
+from pathlib import Path
+from typing import Any
 
 
-def export(args):
+def export(args: argparse.Namespace) -> None:
     from video_backend import verified_models
 
     write_srt(args.video, args.output, verified_models(args.image_run.resolve()),
               args.adapter, args.diagnostics, ocr_engine='paddleocr', lang='en')
 
 
-def export_desktop(video_path, file_path, **settings):
+def export_desktop(video_path: str, file_path: str, **settings: Any) -> None:
     from dxgi_adapters import enumerate_adapters
     from video_backend import verified_model_directory
 
@@ -32,7 +33,7 @@ def export_desktop(video_path, file_path, **settings):
     write_srt(Path(video_path), Path(file_path), models, adapter['index'], diagnostics, **settings)
 
 
-def write_srt(video, output, models, adapter, diagnostics, **settings):
+def write_srt(video: Path, output: Path, models: Path, adapter: int, diagnostics: Path, **settings: Any) -> None:
     from video_backend import DirectMLVideoBackend
 
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'CLI'))

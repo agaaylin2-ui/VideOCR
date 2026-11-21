@@ -6,7 +6,8 @@ backends must explicitly implement this interface and prove their availability.
 from __future__ import annotations
 
 import os
-from typing import Callable, Iterator, Protocol
+from collections.abc import Iterator
+from typing import Callable, Protocol
 
 
 class OCRBackend(Protocol):

@@ -2,7 +2,7 @@ name: Windows desktop installer
 
 on:
   pull_request:
-    branches: [master]
+    branches: [master, desktop/preview-4]
     paths:
       - 'amd_experiment/**'
       - 'CLI/**'

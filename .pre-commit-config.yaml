@@ -1,16 +1,14 @@
 repos:
-  - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.15.7
-    hooks:
-      - id: ruff
-        args: [--fix]
-
   - repo: local
     hooks:
+      - id: ruff
+        name: ruff
+        entry: python -m ruff check --force-exclude
+        language: system
+        types_or: [python, pyi]
       - id: mypy
         name: mypy
-        entry: mypy .
+        entry: python ci/check_types.py
         pass_filenames: false
         language: system
         types: [python]
-        args: ["--config-file=pyproject.toml"]
